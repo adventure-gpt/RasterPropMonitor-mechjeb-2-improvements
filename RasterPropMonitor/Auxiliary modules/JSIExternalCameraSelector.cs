@@ -50,7 +50,23 @@ namespace JSI
         // The rest of it
         private GameObject lightCone;
         private LineRenderer lightConeRenderer;
-        private static readonly Material lightConeMaterial = new Material(Shader.Find("Particles/Additive"));
+        // Lazy initialization to avoid static constructor running before shaders are loaded
+        private static Material _lightConeMaterial;
+        private static Material lightConeMaterial
+        {
+            get
+            {
+                if (_lightConeMaterial == null)
+                {
+                    Shader shader = Shader.Find("Particles/Additive");
+                    if (shader != null)
+                    {
+                        _lightConeMaterial = new Material(shader);
+                    }
+                }
+                return _lightConeMaterial;
+            }
+        }
         private Transform actualCamera;
         private const float endSpan = 15f;
         private const float fovAngle = 60f;

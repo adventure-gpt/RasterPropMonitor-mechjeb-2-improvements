@@ -34,7 +34,19 @@ namespace JSI
         private Color32 backgroundColorValue;
         private List<DataSet> dataSets = new List<DataSet>();
         private bool startupComplete = false;
-        private Material lineMaterial = JUtil.DrawLineMaterial();
+        // Lazy initialization to avoid calling DrawLineMaterial before shaders are loaded
+        private Material _lineMaterial;
+        private Material lineMaterial
+        {
+            get
+            {
+                if (_lineMaterial == null)
+                {
+                    _lineMaterial = JUtil.DrawLineMaterial();
+                }
+                return _lineMaterial;
+            }
+        }
         private RasterPropMonitorComputer rpmComp;
 
         public bool RenderBackground(RenderTexture screen, float cameraAspect)
