@@ -1,4 +1,45 @@
-# RasterPropMonitor
+# RasterPropMonitor - MechJeb 2.15.1 Fork
+
+> ⚠️ **THIS IS A NON-STANDARD FORK** - For the officially maintained version of RasterPropMonitor, please use [FirstPersonKSP/RasterPropMonitor](https://github.com/FirstPersonKSP/RasterPropMonitor).
+
+## About This Fork
+
+This fork ([adventure-gpt/RasterPropMonitor-mechjeb-2-improvements](https://github.com/adventure-gpt/RasterPropMonitor-mechjeb-2-improvements)) adds **MechJeb 2.15.1 interface parity** to RasterPropMonitor. The standard FirstPersonKSP fork targets older MechJeb versions, and this fork bridges that gap.
+
+### Key Changes in This Fork
+
+1. **MechJeb 2.15.1 Wrapper Integration** - Complete reflection-based wrapper for MechJeb's significantly refactored codebase:
+   - Updated field bindings (many properties changed to fields in 2.15.1)
+   - Support for new Landing Guidance module structure (`MechJebModuleLandingGuidance` vs old `MechJebModuleLandingAutopilot`)
+   - Fixed Ascent Autopilot bindings for renamed/restructured fields
+   - ManeuverPlanner operation invocation support
+
+2. **Asset Bundle Compatibility** - Support for JhonnyOthan fork's asset bundle naming (`rasterpropmonitor-shaders.assetbundle` vs platform-specific naming)
+
+3. **External Camera Fixes**:
+   - Fixed camera transform parenting (uses local coordinates for proper floating origin handling)
+   - Fixed near clip plane (0.01m) to prevent clipping through nearby parts
+
+### Upstream Forks
+
+| Fork | Description | Status |
+|------|-------------|--------|
+| [FirstPersonKSP/RasterPropMonitor](https://github.com/FirstPersonKSP/RasterPropMonitor) | **Recommended standard fork** - Actively maintained community version | ✅ Use this for most cases |
+| [JhonnyOthan/RasterPropMonitor](https://github.com/JhonnyOthan/RasterPropMonitor) | Another maintained fork with different features | Active |
+| [Mihara/RasterPropMonitor](https://github.com/Mihara/RasterPropMonitor) | Original repository by Mihara | Archived |
+| **This fork** | MechJeb 2.15.1 interface parity | Specialized use case |
+
+### When to Use This Fork
+
+Use this fork **only if**:
+- You need RPM's MechJeb integration to work with MechJeb 2.15.1+
+- You're experiencing issues with MechJeb buttons/menus in the standard RPM
+
+For all other cases, use [FirstPersonKSP/RasterPropMonitor](https://github.com/FirstPersonKSP/RasterPropMonitor).
+
+---
+
+## Original Documentation
 
 To view this document with formatting, refer to https://github.com/Mihara/RasterPropMonitor/blob/master/README.md
 
@@ -101,6 +142,21 @@ For the latest release notes, please refer to the wiki at
 
 Source code and full license information available at
 [GitHub](https://github.com/Mihara/RasterPropMonitor/)
+
+---
+
+## Changelog (This Fork)
+
+### MechJeb 2.15.1 Integration (2026-01)
+
+- **MechJeb Wrapper Overhaul**: Complete rewrite of `MechJebProxy.cs` and related handlers for MechJeb 2.15.1 compatibility
+- **Ascent Autopilot**: Fixed all autopilot enable/disable buttons and status displays
+- **Landing Guidance**: Updated for new `MechJebModuleLandingGuidance` module structure
+- **Maneuver Planner**: RPM menu now correctly invokes MechJeb operations
+- **Asset Bundle Loading**: Added fallback for JhonnyOthan-style asset bundle naming
+- **External Cameras**: Fixed transform parenting and near clip plane issues
+
+---
 
 ## LICENSES
 
