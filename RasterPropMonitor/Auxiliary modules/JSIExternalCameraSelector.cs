@@ -117,6 +117,12 @@ namespace JSI
 
             // Create the camera transform
             Transform containingTransform = part.FindModelTransform(cameraContainer);
+            if (containingTransform == null)
+            {
+                JUtil.LogErrorMessage(this, "Could not find cameraContainer transform '{0}' in part '{1}'", cameraContainer, part.name);
+                return;
+            }
+            
             if (containingTransform.childCount > 0)
             {
                 actualCamera = containingTransform.GetChild(0);
@@ -126,8 +132,9 @@ namespace JSI
                 actualCamera = new GameObject().transform;
                 actualCamera.parent = containingTransform;
             }
-            actualCamera.position = containingTransform.position;
-            actualCamera.rotation = containingTransform.rotation;
+            // Use local coordinates so camera stays relative to parent when vessel moves
+            actualCamera.localPosition = Vector3.zero;
+            actualCamera.localRotation = Quaternion.identity;
 
             if (rotateCamera != Vector3.zero)
             {

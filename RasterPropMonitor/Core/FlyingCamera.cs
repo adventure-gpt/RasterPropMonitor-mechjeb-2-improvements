@@ -170,12 +170,12 @@ namespace JSI
                     CameraSetup(i, knownCameraNames[i]);
                 }
                 enabled = true;
-                //JUtil.LogMessage(this, "Switched to camera \"{0}\".", cameraTransform.name);
+                JUtil.LogInfo(this, "Switched to camera \"{0}\" at position {1}.", cameraTransform.name, cameraTransform.transform.position);
                 return true;
             }
             else
             {
-                //JUtil.LogMessage(this, "Tried to switch to camera \"{0}\" but camera was not found.", newCameraName);
+                JUtil.LogInfo(this, "Tried to switch to camera \"{0}\" but camera was not found.", newCameraName);
                 return false;
             }
         }
@@ -235,17 +235,10 @@ namespace JSI
                 cameraObject[index].CopyFrom(sourceCam);
                 cameraObject[index].enabled = false;
                 cameraObject[index].aspect = cameraAspect;
-
-                // Minor hack to bring the near clip plane for the "up close"
-                // cameras drastically closer to where the cameras notionally
-                // are.  Experimentally, these two cameras have N/F of 0.4 / 300.0,
-                // or 750:1 Far/Near ratio.  Changing this to 8192:1 brings the
-                // near plane to 37cm or so, which hopefully is close enough to
-                // see nearby details without creating z-fighting artifacts.
-                if (index == 5 || index == 6)
-                {
-                    cameraObject[index].nearClipPlane = cameraObject[index].farClipPlane / 8192.0f;
-                }
+                
+                // For external cameras, we need a much closer near clip plane to see nearby parts
+                // Set near clip plane to 0.01m (1cm) so we can see parts that are very close
+                cameraObject[index].nearClipPlane = 0.01f;
             }
         }
 
