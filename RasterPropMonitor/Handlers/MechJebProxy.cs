@@ -126,7 +126,7 @@ namespace JSI
         
         // ComputerModule
         private static PropertyInfo p_Module_Enabled;
-        private static PropertyInfo p_Module_Users;
+        private static FieldInfo f_Module_Users;
         
         // UserPool
         private static MethodInfo m_UserPool_Add;
@@ -174,7 +174,7 @@ namespace JSI
         private static MethodInfo m_NodeExecutor_ExecuteOneNode;
         private static MethodInfo m_NodeExecutor_ExecuteAllNodes;
         private static MethodInfo m_NodeExecutor_Abort;
-        private static PropertyInfo p_NodeExecutor_Autowarp;
+        private static FieldInfo f_NodeExecutor_Autowarp;
         private static FieldInfo f_NodeExecutor_LeadTime;
         
         // TargetController
@@ -746,11 +746,11 @@ namespace JSI
                 f_FuelStats_Isp = t_FuelStats.GetField("Isp", BindingFlags.Public | BindingFlags.Instance);
             }
 
-            // Initialize UserPool methods
+            // Initialize UserPool methods - need to specify parameter type due to 'new' keyword hiding
             if (t_UserPool != null)
             {
-                m_UserPool_Add = t_UserPool.GetMethod("Add", BindingFlags.Public | BindingFlags.Instance);
-                m_UserPool_Remove = t_UserPool.GetMethod("Remove", BindingFlags.Public | BindingFlags.Instance);
+                m_UserPool_Add = t_UserPool.GetMethod("Add", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, new Type[] { typeof(object) }, null);
+                m_UserPool_Remove = t_UserPool.GetMethod("Remove", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, new Type[] { typeof(object) }, null);
                 m_UserPool_Contains = t_UserPool.GetMethod("Contains", BindingFlags.Public | BindingFlags.Instance);
             }
         }
@@ -792,7 +792,7 @@ namespace JSI
             if (t_ComputerModule != null)
             {
                 p_Module_Enabled = t_ComputerModule.GetProperty("Enabled", BindingFlags.Public | BindingFlags.Instance);
-                p_Module_Users = t_ComputerModule.GetProperty("Users", BindingFlags.Public | BindingFlags.Instance);
+                f_Module_Users = t_ComputerModule.GetField("Users", BindingFlags.Public | BindingFlags.Instance);
             }
 
             // Initialize all module-specific methods and fields
@@ -993,7 +993,7 @@ namespace JSI
             m_NodeExecutor_ExecuteOneNode = t_NodeExecutor.GetMethod("ExecuteOneNode", BindingFlags.Public | BindingFlags.Instance);
             m_NodeExecutor_ExecuteAllNodes = t_NodeExecutor.GetMethod("ExecuteAllNodes", BindingFlags.Public | BindingFlags.Instance);
             m_NodeExecutor_Abort = t_NodeExecutor.GetMethod("Abort", BindingFlags.Public | BindingFlags.Instance);
-            p_NodeExecutor_Autowarp = t_NodeExecutor.GetProperty("Autowarp", BindingFlags.Public | BindingFlags.Instance);
+            f_NodeExecutor_Autowarp = t_NodeExecutor.GetField("Autowarp", BindingFlags.Public | BindingFlags.Instance);
             f_NodeExecutor_LeadTime = t_NodeExecutor.GetField("leadTime", BindingFlags.Public | BindingFlags.Instance);
         }
 
@@ -1300,10 +1300,10 @@ namespace JSI
         /// </summary>
         public static object GetModuleUsers(object module)
         {
-            if (module == null || p_Module_Users == null) return null;
+            if (module == null || f_Module_Users == null) return null;
             try
             {
-                return p_Module_Users.GetValue(module, null);
+                return f_Module_Users.GetValue(module);
             }
             catch
             {
@@ -1958,10 +1958,10 @@ namespace JSI
         public static bool GetNodeAutowarp(object core)
         {
             object node = GetNodeExecutor(core);
-            if (node == null || p_NodeExecutor_Autowarp == null) return false;
+            if (node == null || f_NodeExecutor_Autowarp == null) return false;
             try
             {
-                return (bool)p_NodeExecutor_Autowarp.GetValue(node, null);
+                return (bool)f_NodeExecutor_Autowarp.GetValue(node);
             }
             catch
             {
@@ -1975,10 +1975,10 @@ namespace JSI
         public static void SetNodeAutowarp(object core, bool autowarp)
         {
             object node = GetNodeExecutor(core);
-            if (node == null || p_NodeExecutor_Autowarp == null) return;
+            if (node == null || f_NodeExecutor_Autowarp == null) return;
             try
             {
-                p_NodeExecutor_Autowarp.SetValue(node, autowarp, null);
+                f_NodeExecutor_Autowarp.SetValue(node, autowarp);
             }
             catch { }
         }
