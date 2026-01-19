@@ -286,22 +286,22 @@ namespace JSI
                     throw new NotImplementedException("mjGetComputerModule");
                 }
                 getComputerModule = DynamicMethodDelegateFactory.Create(mjGetComputerModule);
-                mjCoreTarget = mjMechJebCore_t.GetField("Target", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreTarget = mjMechJebCore_t.GetField("target", BindingFlags.Instance | BindingFlags.Public);
                 if (mjCoreTarget == null)
                 {
                     throw new NotImplementedException("mjCoreTarget");
                 }
-                mjCoreNode = mjMechJebCore_t.GetField("Node", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreNode = mjMechJebCore_t.GetField("node", BindingFlags.Instance | BindingFlags.Public);
                 if (mjCoreNode == null)
                 {
                     throw new NotImplementedException("mjCoreNode");
                 }
-                mjCoreAttitude = mjMechJebCore_t.GetField("Attitude", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreAttitude = mjMechJebCore_t.GetField("attitude", BindingFlags.Instance | BindingFlags.Public);
                 if (mjCoreAttitude == null)
                 {
                     throw new NotImplementedException("mjCoreAttitude");
                 }
-                mjCoreVesselState = mjMechJebCore_t.GetField("VesselState", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreVesselState = mjMechJebCore_t.GetField("vesselState", BindingFlags.Instance | BindingFlags.Public);
                 if (mjCoreVesselState == null)
                 {
                     throw new NotImplementedException("mjCoreVesselState");
@@ -410,38 +410,45 @@ namespace JSI
                     throw new NotImplementedException("mjAbsoluteVectorLon");
                 }
 
-                // MechJebModuleAscentSettings - In new MJ2, settings moved to this module
-                Type mjMechJebModuleAscentSettings_t = loadedMechJebAssy.assembly.GetExportedTypes()
-                    .SingleOrDefault(t => t.FullName == "MuMech.MechJebModuleAscentSettings");
-                if (mjMechJebModuleAscentSettings_t == null)
+                // MechJebModuleAscentAutopilot
+                Type mjMechJebModuleAscentAutopilot_t = loadedMechJebAssy.assembly.GetExportedTypes()
+                    .SingleOrDefault(t => t.FullName == "MuMech.MechJebModuleAscentAutopilot");
+                if (mjMechJebModuleAscentAutopilot_t == null)
                 {
-                    throw new NotImplementedException("mjMechJebModuleAscentSettings_t");
+                    throw new NotImplementedException("mjMechJebModuleAscentAutopilot_t");
                 }
-                launchOrbitAltitude = mjMechJebModuleAscentSettings_t.GetField("DesiredOrbitAltitude");
+                launchOrbitAltitude = mjMechJebModuleAscentAutopilot_t.GetField("desiredOrbitAltitude");
                 if (launchOrbitAltitude == null)
                 {
                     throw new NotImplementedException("launchOrbitAltitude");
                 }
-                // MechJebModuleAscentBaseAutopilot - for Engaged property
-                Type mjMechJebModuleAscentBaseAutopilot_t = loadedMechJebAssy.assembly.GetExportedTypes()
-                    .SingleOrDefault(t => t.FullName == "MuMech.MechJebModuleAscentBaseAutopilot");
-                if (mjMechJebModuleAscentBaseAutopilot_t != null)
+                // MOARdV TODO: when the next version of MJ is out, this will be the only way to engage
+                // the AP, so we will want to throw an exception if aapEngaged is null.
+                PropertyInfo aapEngaged = mjMechJebModuleAscentAutopilot_t.GetProperty("Engaged");
+                if (aapEngaged != null)
                 {
-                    PropertyInfo aapEnabled = mjMechJebModuleAscentBaseAutopilot_t.GetProperty("Enabled", BindingFlags.Instance | BindingFlags.Public);
-                    if (aapEnabled != null)
+                    MethodInfo getter = aapEngaged.GetGetMethod();
+                    getAscentAutopilotEngaged = DynamicMethodDelegateFactory.CreateFuncBool(getter);
+                    if (getAscentAutopilotEngaged == null)
                     {
-                        MethodInfo getter = aapEnabled.GetGetMethod();
-                        getAscentAutopilotEngaged = DynamicMethodDelegateFactory.CreateFuncBool(getter);
+                        throw new NotImplementedException("getAscentAutopilotEngaged");
+                    }
 
-                        MethodInfo setter = aapEnabled.GetSetMethod();
-                        if (setter != null)
-                        {
-                            setAscentAutopilotEngaged = DynamicMethodDelegateFactory.Create(setter);
-                        }
+                    MethodInfo setter = aapEngaged.GetSetMethod();
+                    setAscentAutopilotEngaged = DynamicMethodDelegateFactory.Create(setter);
+                    if (setAscentAutopilotEngaged == null)
+                    {
+                        throw new NotImplementedException("setAscentAutopilotEngaged");
                     }
                 }
-                // DesiredInclination is now on MechJebModuleAscentSettings too
-                launchOrbitInclination = mjMechJebModuleAscentSettings_t.GetField("DesiredInclination");
+                // MechJebModuleAscentAutopilot
+                Type mjMechJebModuleAscentGuidance_t = loadedMechJebAssy.assembly.GetExportedTypes()
+                    .SingleOrDefault(t => t.FullName == "MuMech.MechJebModuleAscentGuidance");
+                if (mjMechJebModuleAscentGuidance_t == null)
+                {
+                    throw new NotImplementedException("mjMechJebModuleAscentGuidance_t");
+                }
+                launchOrbitInclination = mjMechJebModuleAscentGuidance_t.GetField("desiredInclination");
                 if (launchOrbitInclination == null)
                 {
                     throw new NotImplementedException("launchOrbitInclination");
@@ -454,7 +461,6 @@ namespace JSI
                     throw new NotImplementedException("mjEditableDoubleMult_t");
                 }
                 // multiplier field is now private (_multiplier) and not used, so skip lookup
-                // getEditableDoubleMultMultiplier = mjEditableDoubleMult_t.GetField("_multiplier", BindingFlags.Instance | BindingFlags.NonPublic);
                 PropertyInfo edmVal = mjEditableDoubleMult_t.GetProperty("Val"); // Was "val", now PascalCase
                 if (edmVal == null)
                 {
@@ -770,43 +776,29 @@ namespace JSI
                 {
                     throw new NotImplementedException("mjModuleStageStats_t");
                 }
-                // RequestUpdate no longer exists in new MJ2 - stats auto-update
                 MethodInfo mjRequestUpdate = mjModuleStageStats_t.GetMethod("RequestUpdate", BindingFlags.Instance | BindingFlags.Public);
-                if (mjRequestUpdate != null)
+                if (mjRequestUpdate == null)
                 {
-                    requestUpdate = DynamicMethodDelegateFactory.Create(mjRequestUpdate);
+                    throw new NotImplementedException("mjRequestUpdate");
                 }
-                // In new MJ2, these are VacStats and AtmoStats (capital letters) and are List<FuelStats>
-                mjVacStageStats = mjModuleStageStats_t.GetField("VacStats", BindingFlags.Instance | BindingFlags.Public);
-                if (mjVacStageStats == null)
-                {
-                    // Try old name for backwards compat
-                    mjVacStageStats = mjModuleStageStats_t.GetField("vacStats", BindingFlags.Instance | BindingFlags.Public);
-                }
+                requestUpdate = DynamicMethodDelegateFactory.Create(mjRequestUpdate);
+                mjVacStageStats = mjModuleStageStats_t.GetField("vacStats", BindingFlags.Instance | BindingFlags.Public);
                 if (mjVacStageStats == null)
                 {
                     throw new NotImplementedException("mjVacStageStats");
                 }
 
-                // Updated MechJeb uses List<FuelStats> instead of arrays now
-                mjAtmStageStats = mjModuleStageStats_t.GetField("AtmoStats", BindingFlags.Instance | BindingFlags.Public);
-                if (mjAtmStageStats == null)
-                {
-                    // Try old name for backwards compat
-                    mjAtmStageStats = mjModuleStageStats_t.GetField("atmoStats", BindingFlags.Instance | BindingFlags.Public);
-                }
+                // Updated MechJeb (post 2.5.1) switched from using KER back to
+                // its internal FuelFlowSimulation.  This sim uses an array of
+                // structs, which entails a couple of extra hoops to jump through
+                // when reading via reflection.
+                mjAtmStageStats = mjModuleStageStats_t.GetField("atmoStats", BindingFlags.Instance | BindingFlags.Public);
                 if (mjAtmStageStats == null)
                 {
                     throw new NotImplementedException("mjAtmStageStats");
                 }
 
-                // For Lists, we use Count instead of Length, and indexer instead of Get
-                PropertyInfo mjStageStatsLength = mjVacStageStats.FieldType.GetProperty("Count");
-                if (mjStageStatsLength == null)
-                {
-                    // Fall back to Length for array types
-                    mjStageStatsLength = mjVacStageStats.FieldType.GetProperty("Length");
-                }
+                PropertyInfo mjStageStatsLength = mjVacStageStats.FieldType.GetProperty("Length");
                 if (mjStageStatsLength == null)
                 {
                     throw new NotImplementedException("mjStageStatsLength");
@@ -817,12 +809,7 @@ namespace JSI
                     throw new NotImplementedException("mjStageStatsGetLength");
                 }
                 stageStatsGetLength = DynamicMethodDelegateFactory.CreateFuncInt(mjStageStatsGetLength);
-                // For Lists, use Item indexer property; for arrays use Get method
-                MethodInfo mjStageStatsGetIndex = mjVacStageStats.FieldType.GetMethod("get_Item");
-                if (mjStageStatsGetIndex == null)
-                {
-                    mjStageStatsGetIndex = mjVacStageStats.FieldType.GetMethod("Get");
-                }
+                MethodInfo mjStageStatsGetIndex = mjVacStageStats.FieldType.GetMethod("Get");
                 if (mjStageStatsGetIndex == null)
                 {
                     throw new NotImplementedException("mjStageStatsGetIndex");
