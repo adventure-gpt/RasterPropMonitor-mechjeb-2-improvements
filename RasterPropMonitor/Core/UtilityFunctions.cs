@@ -1687,7 +1687,8 @@ namespace JSI
 
         private void LoadAssets()
         {
-            String assetsPath = KSPUtil.ApplicationRootPath + "GameData/JSI/RasterPropMonitor/";
+            // KSPUtil.ApplicationRootPath may contain "../" which doesn't work well with LoadFromFile
+            String assetsPath = System.IO.Path.GetFullPath(KSPUtil.ApplicationRootPath + "GameData/JSI/RasterPropMonitor/");
             String shaderAssetBundleName = "rasterpropmonitor";
             if (Application.platform == RuntimePlatform.WindowsPlayer)
             {
@@ -1704,6 +1705,7 @@ namespace JSI
             shaderAssetBundleName += ".assetbundle";
 
             string shaderBundlePath = assetsPath + shaderAssetBundleName;
+            JUtil.LogInfo(this, "Loading shader bundle from: {0}", shaderBundlePath);
             AssetBundle bundle = AssetBundle.LoadFromFile(shaderBundlePath);
 
             if (bundle == null)
@@ -1735,6 +1737,7 @@ namespace JSI
 
             string fontAssetBundleName = "rasterpropmonitor-font.assetbundle";
             string fontBundlePath = assetsPath + fontAssetBundleName;
+            JUtil.LogInfo(this, "Loading font bundle from: {0}", fontBundlePath);
             bundle = AssetBundle.LoadFromFile(fontBundlePath);
 
             if (bundle == null)
