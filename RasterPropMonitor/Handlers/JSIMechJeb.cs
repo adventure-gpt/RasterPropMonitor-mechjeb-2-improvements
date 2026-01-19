@@ -412,48 +412,50 @@ namespace JSI
                     throw new NotImplementedException("mjAbsoluteVectorLon");
                 }
 
-                // MechJebModuleAscentAutopilot
-                Type mjMechJebModuleAscentAutopilot_t = loadedMechJebAssy.assembly.GetExportedTypes()
-                    .SingleOrDefault(t => t.FullName == "MuMech.MechJebModuleAscentAutopilot");
-                if (mjMechJebModuleAscentAutopilot_t == null)
+                // MechJebModuleAscentSettings - contains orbit altitude, inclination, and autopilot access
+                // Note: Old MJ had separate MechJebModuleAscentAutopilot and MechJebModuleAscentGuidance
+                // In newer MJ (2.5+), these are consolidated in MechJebModuleAscentSettings
+                Type mjMechJebModuleAscentSettings_t = loadedMechJebAssy.assembly.GetExportedTypes()
+                    .SingleOrDefault(t => t.FullName == "MuMech.MechJebModuleAscentSettings");
+                if (mjMechJebModuleAscentSettings_t == null)
                 {
-                    throw new NotImplementedException("mjMechJebModuleAscentAutopilot_t");
+                    throw new NotImplementedException("mjMechJebModuleAscentSettings_t");
                 }
-                launchOrbitAltitude = mjMechJebModuleAscentAutopilot_t.GetField("desiredOrbitAltitude");
+                // DesiredOrbitAltitude field (PascalCase in newer MJ)
+                launchOrbitAltitude = mjMechJebModuleAscentSettings_t.GetField("DesiredOrbitAltitude", BindingFlags.Instance | BindingFlags.Public);
                 if (launchOrbitAltitude == null)
                 {
                     throw new NotImplementedException("launchOrbitAltitude");
                 }
-                // MOARdV TODO: when the next version of MJ is out, this will be the only way to engage
-                // the AP, so we will want to throw an exception if aapEngaged is null.
-                PropertyInfo aapEngaged = mjMechJebModuleAscentAutopilot_t.GetProperty("Engaged");
-                if (aapEngaged != null)
-                {
-                    MethodInfo getter = aapEngaged.GetGetMethod();
-                    getAscentAutopilotEngaged = DynamicMethodDelegateFactory.CreateFuncBool(getter);
-                    if (getAscentAutopilotEngaged == null)
-                    {
-                        throw new NotImplementedException("getAscentAutopilotEngaged");
-                    }
-
-                    MethodInfo setter = aapEngaged.GetSetMethod();
-                    setAscentAutopilotEngaged = DynamicMethodDelegateFactory.Create(setter);
-                    if (setAscentAutopilotEngaged == null)
-                    {
-                        throw new NotImplementedException("setAscentAutopilotEngaged");
-                    }
-                }
-                // MechJebModuleAscentAutopilot
-                Type mjMechJebModuleAscentGuidance_t = loadedMechJebAssy.assembly.GetExportedTypes()
-                    .SingleOrDefault(t => t.FullName == "MuMech.MechJebModuleAscentGuidance");
-                if (mjMechJebModuleAscentGuidance_t == null)
-                {
-                    throw new NotImplementedException("mjMechJebModuleAscentGuidance_t");
-                }
-                launchOrbitInclination = mjMechJebModuleAscentGuidance_t.GetField("desiredInclination");
+                // DesiredInclination field (also in AscentSettings, PascalCase)
+                launchOrbitInclination = mjMechJebModuleAscentSettings_t.GetField("DesiredInclination", BindingFlags.Instance | BindingFlags.Public);
                 if (launchOrbitInclination == null)
                 {
                     throw new NotImplementedException("launchOrbitInclination");
+                }
+                
+                // AscentAutopilot property returns the current autopilot module
+                // The autopilot's Enabled property (inherited from ComputerModule) controls engagement
+                PropertyInfo aapAutopilot = mjMechJebModuleAscentSettings_t.GetProperty("AscentAutopilot", BindingFlags.Instance | BindingFlags.Public);
+                if (aapAutopilot != null)
+                {
+                    // Get the autopilot type to access its Enabled property
+                    Type mjAscentAutopilot_t = aapAutopilot.PropertyType;
+                    // The Enabled property is on ComputerModule base class
+                    PropertyInfo aapEnabled = mjAscentAutopilot_t.GetProperty("Enabled", BindingFlags.Instance | BindingFlags.Public);
+                    if (aapEnabled != null)
+                    {
+                        MethodInfo getter = aapEnabled.GetGetMethod();
+                        if (getter != null)
+                        {
+                            getAscentAutopilotEngaged = DynamicMethodDelegateFactory.CreateFuncBool(getter);
+                        }
+                        MethodInfo setter = aapEnabled.GetSetMethod();
+                        if (setter != null)
+                        {
+                            setAscentAutopilotEngaged = DynamicMethodDelegateFactory.Create(setter);
+                        }
+                    }
                 }
 
                 Type mjEditableDoubleMult_t = loadedMechJebAssy.assembly.GetExportedTypes()
@@ -1308,7 +1310,7 @@ namespace JSI
         {
             double alt = 0.0;
             object activeJeb = GetMasterMechJeb(vessel);
-            object ascent = GetComputerModule(activeJeb, "MechJebModuleAscentAutopilot");
+            object ascent = GetComputerModule(activeJeb, "MechJebModuleAscentSettings");
             if (ascent != null)
             {
                 object desiredAlt = launchOrbitAltitude.GetValue(ascent);
@@ -1330,7 +1332,7 @@ namespace JSI
         public void SetLaunchAltitude(double altitude)
         {
             object activeJeb = GetMasterMechJeb(vessel);
-            object ascent = GetComputerModule(activeJeb, "MechJebModuleAscentAutopilot");
+            object ascent = GetComputerModule(activeJeb, "MechJebModuleAscentSettings");
             if (ascent != null)
             {
                 object desiredAlt = launchOrbitAltitude.GetValue(ascent);
@@ -1345,7 +1347,7 @@ namespace JSI
         {
             double angle = 0.0;
             object activeJeb = GetMasterMechJeb(vessel);
-            object ascent = GetComputerModule(activeJeb, "MechJebModuleAscentGuidance");
+            object ascent = GetComputerModule(activeJeb, "MechJebModuleAscentSettings");
             if (ascent != null)
             {
                 object inclination = launchOrbitInclination.GetValue(ascent);
@@ -1357,7 +1359,7 @@ namespace JSI
         public void SetLaunchInclination(double inclination)
         {
             object activeJeb = GetMasterMechJeb(vessel);
-            object ascent = GetComputerModule(activeJeb, "MechJebModuleAscentGuidance");
+            object ascent = GetComputerModule(activeJeb, "MechJebModuleAscentSettings");
             if (ascent != null)
             {
                 object incline = launchOrbitInclination.GetValue(ascent);
@@ -1699,41 +1701,60 @@ namespace JSI
         public void ButtonAscentGuidance(bool state)
         {
             object activeJeb = GetMasterMechJeb(vessel);
-            object ap = GetComputerModule(activeJeb, "MechJebModuleAscentAutopilot");
-
-            if (ap != null)
+            
+            // Try MechJebModuleAscentBaseAutopilot first (newer MJ)
+            object ap = GetComputerModule(activeJeb, "MechJebModuleAscentBaseAutopilot");
+            if (ap == null)
             {
-                // MOARdV TODO: When MJ 2.5.4 (or higher) is out, remove the
-                // null check here and eliminate the else path, since getAAPEngaged
-                // will be the only valid path.
-                if (setAscentAutopilotEngaged != null)
+                // Fall back to getting autopilot from AscentSettings
+                object ascentSettings = GetComputerModule(activeJeb, "MechJebModuleAscentSettings");
+                if (ascentSettings != null)
                 {
-                    setAscentAutopilotEngaged(ap, new object[] { state });
-                }
-                else
-                {
-                    object users = mjModuleUsers.GetValue(ap);
-                    if (users == null)
+                    PropertyInfo ascentAutopilotProp = ascentSettings.GetType().GetProperty("AscentAutopilot");
+                    if (ascentAutopilotProp != null)
                     {
-                        throw new NotImplementedException("mjModuleUsers(ap) was null");
-                    }
-
-                    object agPilot = GetComputerModule(activeJeb, "MechJebModuleAscentGuidance");
-                    if (agPilot == null)
-                    {
-                        JUtil.LogErrorMessage(this, "Unable to fetch MechJebModuleAscentGuidance");
-                        return;
-                    }
-
-                    if (ModuleEnabled(ap))
-                    {
-                        removeUser(users, new object[] { agPilot });
-                    }
-                    else
-                    {
-                        addUser(users, new object[] { agPilot });
+                        ap = ascentAutopilotProp.GetValue(ascentSettings, null);
                     }
                 }
+            }
+
+            if (ap == null)
+            {
+                return;
+            }
+
+            // Get the Users collection
+            object users = mjModuleUsers.GetValue(ap);
+            if (users == null)
+            {
+                // Try getting Users via property (newer MJ uses PascalCase)
+                PropertyInfo usersProp = ap.GetType().GetProperty("Users");
+                if (usersProp != null)
+                {
+                    users = usersProp.GetValue(ap, null);
+                }
+            }
+            if (users == null)
+            {
+                JUtil.LogErrorMessage(this, "mjModuleUsers(ap) was null");
+                return;
+            }
+
+            // Get MechJebModuleAscentMenu (newer MJ) instead of MechJebModuleAscentGuidance
+            object agPilot = GetComputerModule(activeJeb, "MechJebModuleAscentMenu");
+            if (agPilot == null)
+            {
+                JUtil.LogErrorMessage(this, "Unable to fetch MechJebModuleAscentMenu");
+                return;
+            }
+
+            if (ModuleEnabled(ap))
+            {
+                removeUser(users, new object[] { agPilot });
+            }
+            else
+            {
+                addUser(users, new object[] { agPilot });
             }
         }
 
@@ -1746,19 +1767,27 @@ namespace JSI
             object activeJeb = GetMasterMechJeb(vessel);
             if (activeJeb != null)
             {
-                object ap = GetComputerModule(activeJeb, "MechJebModuleAscentAutopilot");
+                // Try MechJebModuleAscentBaseAutopilot first (newer MJ)
+                object ap = GetComputerModule(activeJeb, "MechJebModuleAscentBaseAutopilot");
+                if (ap == null)
+                {
+                    // Fall back to getting autopilot from AscentSettings
+                    object ascentSettings = GetComputerModule(activeJeb, "MechJebModuleAscentSettings");
+                    if (ascentSettings != null)
+                    {
+                        PropertyInfo ascentAutopilotProp = ascentSettings.GetType().GetProperty("AscentAutopilot");
+                        if (ascentAutopilotProp != null)
+                        {
+                            ap = ascentAutopilotProp.GetValue(ascentSettings, null);
+                        }
+                    }
+                }
 
-                // MOARdV TODO: When MJ 2.5.4 (or higher) is out, remove the
-                // null check here and eliminate the else path, since getAAPEngaged
-                // will be the only valid path.
-                if (getAscentAutopilotEngaged != null)
+                if (getAscentAutopilotEngaged != null && ap != null)
                 {
                     return getAscentAutopilotEngaged(ap);
                 }
-                else
-                {
-                    return ModuleEnabled(ap);
-                }
+                return ModuleEnabled(ap);
             }
             else
             {
