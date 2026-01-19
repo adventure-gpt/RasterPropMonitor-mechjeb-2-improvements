@@ -96,7 +96,7 @@ namespace MechJebRPM
                 // Guidance) without querying indirectly like this.
                 // MOARdV BUG: This doesn't seem to work if any of the
                 // attitude settings are active (like "Prograde").
-                if (activeJeb.attitude.enabled && !activeJeb.attitude.users.Contains(activeSmartass))
+                if (activeJeb.Attitude.Enabled && !activeJeb.Attitude.Users.Contains(activeSmartass))
                 {
                     return MechJebModuleSmartASS.TargetTexts[(int)MechJebModuleSmartASS.Target.AUTO].Replace('\n', ' ');
                 }
@@ -336,7 +336,7 @@ namespace MechJebRPM
                 if (mp != null)
                 {
                     item.isSelected = false;
-                    item.labelText = (activeJeb.node.enabled) ? "Abort Node Execution" : "Execute Next Node";
+                    item.labelText = (activeJeb.Node.Enabled) ? "Abort Node Execution" : "Execute Next Node";
                     if (vessel.patchedConicSolver != null)
                     {
                         item.isDisabled = (vessel.patchedConicSolver.maneuverNodes.Count == 0);
@@ -381,7 +381,7 @@ namespace MechJebRPM
                 }
                 else
                 {
-                    item.labelText = (activeJeb.target.PositionTargetExists) ? "Land at Target" : "Land Somewhere";
+                    item.labelText = (activeJeb.Target.PositionTargetExists) ? "Land at Target" : "Land Somewhere";
                     item.isSelected = landingAP.enabled;
                     item.isDisabled = false;
                 }
@@ -399,7 +399,7 @@ namespace MechJebRPM
                 else
                 {
                     item.isSelected = dockingAP.enabled;
-                    item.isDisabled = !(activeJeb.target.Target is ModuleDockingNode);
+                    item.isDisabled = !(activeJeb.Target.Target is ModuleDockingNode);
                 }
             }
 
@@ -510,13 +510,13 @@ namespace MechJebRPM
                 {
                     // We have a valid maneuver planner, which means we can
                     // tell MJ to execute a node.  Or abort a node.
-                    if (activeJeb.node.enabled)
+                    if (activeJeb.Node.Enabled)
                     {
-                        activeJeb.node.Abort();
+                        activeJeb.Node.Abort();
                     }
                     else
                     {
-                        activeJeb.node.ExecuteOneNode(mp);
+                        activeJeb.Node.ExecuteOneNode(mp);
                     }
                 }
             }
@@ -580,7 +580,7 @@ namespace MechJebRPM
                     var landingGuidanceAP = activeJeb.GetComputerModule<MechJebModuleLandingGuidance>();
                     if (landingGuidanceAP != null)
                     {
-                        if (activeJeb.target.PositionTargetExists)
+                        if (activeJeb.Target.PositionTargetExists)
                         {
                             autopilot.LandAtPositionTarget(landingGuidanceAP);
                         }
@@ -608,7 +608,7 @@ namespace MechJebRPM
                         {
                             autopilot.users.Remove(autopilotController);
                         }
-                        else if (activeJeb.target.Target is ModuleDockingNode)
+                        else if (activeJeb.Target.Target is ModuleDockingNode)
                         {
                             if (autopilot.speedLimit < 0)
                             {

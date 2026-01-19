@@ -2209,10 +2209,10 @@ namespace JSI
                                 return 1d;
                             case FlightUIMode.STAGING:
                                 return -1d;
-                            case FlightUIMode.ORBITAL:
+                            // FlightUIMode.ORBITAL was removed in KSP 1.12
+                            default:
                                 return 0d;
                         }
-                        return double.NaN;
                     };
 
                 // Meta.

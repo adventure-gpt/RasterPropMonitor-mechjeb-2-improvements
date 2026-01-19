@@ -14,14 +14,14 @@ namespace MechJebRPM
                 return;
             if (state)
             {
-                if (!activeJeb.node.enabled)
+                if (!activeJeb.Node.Enabled)
                 {
-                    activeJeb.node.ExecuteOneNode(mp);
+                    activeJeb.Node.ExecuteOneNode(mp);
                 }
             }
             else
             {
-                activeJeb.node.Abort();
+                activeJeb.Node.Abort();
             }
         }
 
@@ -31,7 +31,7 @@ namespace MechJebRPM
             if (activeJeb == null)
                 return false;
             MechJebModuleManeuverPlanner mp = activeJeb.GetComputerModule<MechJebModuleManeuverPlanner>();
-            return mp != null && activeJeb.node.enabled;
+            return mp != null && activeJeb.Node.Enabled;
         }
 
         public void ButtonAscentGuidance(bool state)
@@ -98,9 +98,9 @@ namespace MechJebRPM
             Orbit o = vessel.orbit;
             Vector3d dV;
             double UT = Planetarium.GetUniversalTime();
-            dV = (o.referenceBody == activeJeb.target.TargetOrbit.referenceBody) ?
-                OrbitalManeuverCalculator.DeltaVAndTimeForHohmannTransfer(o, activeJeb.target.TargetOrbit, UT, out UT) :
-                OrbitalManeuverCalculator.DeltaVAndTimeForInterplanetaryTransferEjection(o, UT, activeJeb.target.TargetOrbit, true, out UT);
+            dV = (o.referenceBody == activeJeb.Target.TargetOrbit.referenceBody) ?
+                OrbitalManeuverCalculator.DeltaVAndTimeForHohmannTransfer(o, activeJeb.Target.TargetOrbit, UT, out UT) :
+                OrbitalManeuverCalculator.DeltaVAndTimeForInterplanetaryTransferEjection(o, UT, activeJeb.Target.TargetOrbit, true, out UT);
             vessel.RemoveAllManeuverNodes();
             vessel.PlaceManeuverNode(o, dV, UT);
         }
@@ -119,7 +119,7 @@ namespace MechJebRPM
 
             // Most of these conditions are directly from MJ, or derived from
             // it.
-            if (!activeJeb.target.NormalTargetExists)
+            if (!activeJeb.Target.NormalTargetExists)
             {
                 return false;
             }
@@ -131,17 +131,17 @@ namespace MechJebRPM
                 return false;
             }
 
-            if (o.referenceBody == activeJeb.target.TargetOrbit.referenceBody)
+            if (o.referenceBody == activeJeb.Target.TargetOrbit.referenceBody)
             {
                 // Target is in our SoI
 
-                if (activeJeb.target.TargetOrbit.eccentricity >= 1.0)
+                if (activeJeb.Target.TargetOrbit.eccentricity >= 1.0)
                 {
                     // can't intercept hyperbolic targets
                     return false;
                 }
 
-                if (o.RelativeInclination(activeJeb.target.TargetOrbit) > 30.0 && o.RelativeInclination(activeJeb.target.TargetOrbit) < 150.0)
+                if (o.RelativeInclination(activeJeb.Target.TargetOrbit) > 30.0 && o.RelativeInclination(activeJeb.Target.TargetOrbit) < 150.0)
                 {
                     // Target is in a drastically different orbital plane.
                     return false;
@@ -155,11 +155,11 @@ namespace MechJebRPM
                     // Can't plot a transfer from an orbit around the sun (really?)
                     return false;
                 }
-                if (o.referenceBody.referenceBody != activeJeb.target.TargetOrbit.referenceBody)
+                if (o.referenceBody.referenceBody != activeJeb.Target.TargetOrbit.referenceBody)
                 {
                     return false;
                 }
-                if (o.referenceBody.orbit.RelativeInclination(activeJeb.target.TargetOrbit) > 30.0)
+                if (o.referenceBody.orbit.RelativeInclination(activeJeb.Target.TargetOrbit) > 30.0)
                 {
                     // Can't handle highly inclined targets
                     return false;
@@ -198,7 +198,7 @@ namespace MechJebRPM
                     var landingGuidanceAP = activeJeb.GetComputerModule<MechJebModuleLandingGuidance>();
                     if (landingGuidanceAP != null)
                     {
-                        if (activeJeb.target.PositionTargetExists)
+                        if (activeJeb.Target.PositionTargetExists)
                         {
                             autopilot.LandAtPositionTarget(landingGuidanceAP);
                         }
@@ -493,7 +493,7 @@ namespace MechJebRPM
                 return;
             }
             var autopilot = activeJeb.GetComputerModule<MechJebModuleRendezvousAutopilot>();
-            if (autopilot != null && activeJeb.target.NormalTargetExists && activeJeb.target.TargetOrbit.referenceBody == vessel.orbit.referenceBody)
+            if (autopilot != null && activeJeb.Target.NormalTargetExists && activeJeb.Target.TargetOrbit.referenceBody == vessel.orbit.referenceBody)
             {
                 /*
                 var autopilotController = activeJeb.GetComputerModule<MechJebModuleRendezvousAutopilotWindow>();

@@ -1703,22 +1703,16 @@ namespace JSI
             }
             shaderAssetBundleName += ".assetbundle";
 
-            WWW www = new WWW("file://" + assetsPath + shaderAssetBundleName);
+            string fullPath = assetsPath + shaderAssetBundleName;
+            AssetBundle bundle = AssetBundle.LoadFromFile(fullPath);
 
-            if (!string.IsNullOrEmpty(www.error))
+            if (bundle == null)
             {
-                JUtil.LogErrorMessage(this, "Error loading AssetBundle: {0}", www.error);
-                return;
-            }
-            else if (www.assetBundle == null)
-            {
-                JUtil.LogErrorMessage(this, "Unable to load AssetBundle {0}", www);
+                JUtil.LogErrorMessage(this, "Unable to load AssetBundle from {0}", fullPath);
                 return;
             }
 
             JUtil.parsedShaders.Clear();
-
-            AssetBundle bundle = www.assetBundle;
 
             string[] assetNames = bundle.GetAllAssetNames();
             int len = assetNames.Length;
@@ -1740,22 +1734,16 @@ namespace JSI
             bundle.Unload(false);
 
             string fontAssetBundleName = "rasterpropmonitor-font.assetbundle";
-            www = new WWW("file://" + assetsPath + fontAssetBundleName);
+            fullPath = assetsPath + fontAssetBundleName;
+            bundle = AssetBundle.LoadFromFile(fullPath);
 
-            if (!string.IsNullOrEmpty(www.error))
+            if (bundle == null)
             {
-                JUtil.LogErrorMessage(this, "Error loading AssetBundle: {0}", www.error);
-                return;
-            }
-            else if (www.assetBundle == null)
-            {
-                JUtil.LogErrorMessage(this, "Unable to load AssetBundle {0}", www);
+                JUtil.LogErrorMessage(this, "Unable to load AssetBundle from {0}", fullPath);
                 return;
             }
 
             JUtil.loadedFonts.Clear();
-
-            bundle = www.assetBundle;
 
             assetNames = bundle.GetAllAssetNames();
             len = assetNames.Length;
