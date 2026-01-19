@@ -259,6 +259,7 @@ namespace JSI
 
         static JSIMechJeb()
         {
+            UnityEngine.Debug.Log("[JSIMechJeb] Static constructor starting...");
             Type mjMechJebCore_t = null;
             try
             {
@@ -266,11 +267,11 @@ namespace JSI
 
                 if (loadedMechJebAssy == null)
                 {
+                    UnityEngine.Debug.Log("[JSIMechJeb] MechJeb2 assembly not found");
                     mjFound = false;
-                    //JUtil.LogMessage(this, "A supported version of MechJeb is {0}", (mjFound) ? "present" : "not available");
-
                     return;
                 }
+                UnityEngine.Debug.Log("[JSIMechJeb] MechJeb2 assembly found: " + loadedMechJebAssy.assembly.FullName);
 
                 //--- Process all the reflection info
                 // MechJebCore
@@ -278,6 +279,7 @@ namespace JSI
                     .SingleOrDefault(t => t.FullName == "MuMech.MechJebCore");
                 if (mjMechJebCore_t == null)
                 {
+                    UnityEngine.Debug.Log("[JSIMechJeb] MuMech.MechJebCore not found");
                     return;
                 }
                 MethodInfo mjGetComputerModule = mjMechJebCore_t.GetMethod("GetComputerModule", new Type[] { typeof(string) });
@@ -782,7 +784,14 @@ namespace JSI
                     throw new NotImplementedException("mjRequestUpdate");
                 }
                 requestUpdate = DynamicMethodDelegateFactory.Create(mjRequestUpdate);
-                mjVacStageStats = mjModuleStageStats_t.GetField("vacStats", BindingFlags.Instance | BindingFlags.Public);
+                // VacStats/AtmoStats - In new MJ2, these are List<FuelStats> with PascalCase names
+                // In old MJ2, they were FuelStats[] with lowercase names
+                mjVacStageStats = mjModuleStageStats_t.GetField("VacStats", BindingFlags.Instance | BindingFlags.Public);
+                if (mjVacStageStats == null)
+                {
+                    // Try old naming convention
+                    mjVacStageStats = mjModuleStageStats_t.GetField("vacStats", BindingFlags.Instance | BindingFlags.Public);
+                }
                 if (mjVacStageStats == null)
                 {
                     throw new NotImplementedException("mjVacStageStats");
@@ -792,13 +801,25 @@ namespace JSI
                 // its internal FuelFlowSimulation.  This sim uses an array of
                 // structs, which entails a couple of extra hoops to jump through
                 // when reading via reflection.
-                mjAtmStageStats = mjModuleStageStats_t.GetField("atmoStats", BindingFlags.Instance | BindingFlags.Public);
+                // New MJ2 2.15+ uses List<FuelStats> instead of FuelStats[]
+                mjAtmStageStats = mjModuleStageStats_t.GetField("AtmoStats", BindingFlags.Instance | BindingFlags.Public);
+                if (mjAtmStageStats == null)
+                {
+                    // Try old naming convention
+                    mjAtmStageStats = mjModuleStageStats_t.GetField("atmoStats", BindingFlags.Instance | BindingFlags.Public);
+                }
                 if (mjAtmStageStats == null)
                 {
                     throw new NotImplementedException("mjAtmStageStats");
                 }
 
-                PropertyInfo mjStageStatsLength = mjVacStageStats.FieldType.GetProperty("Length");
+                // For List<T>, use Count property; for array, use Length property
+                PropertyInfo mjStageStatsLength = mjVacStageStats.FieldType.GetProperty("Count");
+                if (mjStageStatsLength == null)
+                {
+                    // Try Length for array type (older MJ2)
+                    mjStageStatsLength = mjVacStageStats.FieldType.GetProperty("Length");
+                }
                 if (mjStageStatsLength == null)
                 {
                     throw new NotImplementedException("mjStageStatsLength");
@@ -809,7 +830,13 @@ namespace JSI
                     throw new NotImplementedException("mjStageStatsGetLength");
                 }
                 stageStatsGetLength = DynamicMethodDelegateFactory.CreateFuncInt(mjStageStatsGetLength);
-                MethodInfo mjStageStatsGetIndex = mjVacStageStats.FieldType.GetMethod("Get");
+                // For List<T>, use get_Item; for array, use Get
+                MethodInfo mjStageStatsGetIndex = mjVacStageStats.FieldType.GetMethod("get_Item");
+                if (mjStageStatsGetIndex == null)
+                {
+                    // Try Get for array type (older MJ2)
+                    mjStageStatsGetIndex = mjVacStageStats.FieldType.GetMethod("Get");
+                }
                 if (mjStageStatsGetIndex == null)
                 {
                     throw new NotImplementedException("mjStageStatsGetIndex");
@@ -855,16 +882,18 @@ namespace JSI
             catch (Exception e)
             {
                 mjMechJebCore_t = null;
-                JUtil.LogMessage(null, "Exception initializing JSIMechJeb: {0}", e);
+                UnityEngine.Debug.LogError("[JSIMechJeb] Exception initializing JSIMechJeb: " + e);
             }
 
             if (mjMechJebCore_t != null && getMasterMechJeb != null)
             {
                 mjFound = true;
+                UnityEngine.Debug.Log("[JSIMechJeb] MechJeb found and initialized successfully");
             }
             else
             {
                 mjFound = false;
+                UnityEngine.Debug.Log("[JSIMechJeb] MechJeb NOT found. mjMechJebCore_t=" + (mjMechJebCore_t != null) + ", getMasterMechJeb=" + (getMasterMechJeb != null));
             }
         }
 
