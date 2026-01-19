@@ -420,7 +420,9 @@ namespace JSI
             item = activeMenu.Find(x => x.id == (int)MJMenu.AscentGuidanceMenu);
             if (item != null)
             {
-                if (!GetModuleExists("MechJebModuleAscentAutopilot"))
+                // In MJ 2.15+, check for AscentSettings (which provides AscentAutopilot property)
+                // or AscentBaseAutopilot. Old MJ used MechJebModuleAscentAutopilot which no longer exists.
+                if (!GetModuleExists("MechJebModuleAscentSettings") && !GetModuleExists("MechJebModuleAscentBaseAutopilot"))
                 {
                     item.isSelected = false;
                     item.isDisabled = true;
@@ -428,7 +430,8 @@ namespace JSI
                 else
                 {
                     item.isSelected = AscentAPState();
-                    item.isDisabled = false;
+                    // Disable if we're not landed/prelaunch - ascent only makes sense on ground
+                    item.isDisabled = !vessel.LandedOrSplashed;
                 }
             }
 
@@ -444,7 +447,8 @@ namespace JSI
                 {
                     item.labelText = (PositionTargetExists()) ? "Land at Target" : "Land Somewhere";
                     item.isSelected = LandingAPState();
-                    item.isDisabled = false;
+                    // Disable if already landed - landing only makes sense when in flight
+                    item.isDisabled = vessel.LandedOrSplashed;
                 }
             }
 
