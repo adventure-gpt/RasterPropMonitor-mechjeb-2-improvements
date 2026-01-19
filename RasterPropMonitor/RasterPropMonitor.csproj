@@ -230,6 +230,6 @@
   </ItemGroup>
   <PropertyGroup>
     <PostBuildEvent>copy $(TargetPath) $(SolutionDir)GameData\JSI\RasterPropMonitor\Plugins\
-copy $(TargetPath) "D:\Games\Steam\steamapps\common\Kerbal Space Program\GameData\JSI\RasterPropMonitor\Plugins\"</PostBuildEvent>
+copy $(TargetPath) "C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program\GameData\JSI\RasterPropMonitor\Plugins\"</PostBuildEvent>
   </PropertyGroup>
 </Project>
