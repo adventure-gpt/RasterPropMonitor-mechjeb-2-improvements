@@ -1689,6 +1689,8 @@ namespace JSI
         {
             // KSPUtil.ApplicationRootPath may contain "../" which doesn't work well with LoadFromFile
             String assetsPath = System.IO.Path.GetFullPath(KSPUtil.ApplicationRootPath + "GameData/JSI/RasterPropMonitor/");
+            
+            // Try platform-specific bundle first (original RPM naming)
             String shaderAssetBundleName = "rasterpropmonitor";
             if (Application.platform == RuntimePlatform.WindowsPlayer)
             {
@@ -1708,9 +1710,17 @@ namespace JSI
             JUtil.LogInfo(this, "Loading shader bundle from: {0}", shaderBundlePath);
             AssetBundle bundle = AssetBundle.LoadFromFile(shaderBundlePath);
 
+            // Fall back to JhonnyOthan fork naming (platform-agnostic)
             if (bundle == null)
             {
-                JUtil.LogErrorMessage(this, "Unable to load shader AssetBundle from {0}", shaderBundlePath);
+                shaderBundlePath = assetsPath + "rasterpropmonitor-shaders.assetbundle";
+                JUtil.LogInfo(this, "Trying alternate shader bundle: {0}", shaderBundlePath);
+                bundle = AssetBundle.LoadFromFile(shaderBundlePath);
+            }
+
+            if (bundle == null)
+            {
+                JUtil.LogErrorMessage(this, "Unable to load shader AssetBundle from {0}", assetsPath);
                 return;
             }
 
