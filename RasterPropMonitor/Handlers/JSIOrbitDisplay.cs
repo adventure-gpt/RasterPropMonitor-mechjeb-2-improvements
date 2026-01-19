@@ -66,18 +66,7 @@ namespace JSI
         public int orbitPoints = 120;
         private bool startupComplete;
         private Material iconMaterial;
-        private Material _lineMaterial;
-        private Material lineMaterial
-        {
-            get
-            {
-                if (_lineMaterial == null)
-                {
-                    _lineMaterial = JUtil.DrawLineMaterial();
-                }
-                return _lineMaterial;
-            }
-        }
+        private readonly Material lineMaterial = JUtil.DrawLineMaterial();
         // All units in pixels.  Assumes GL.Begin(LINES) and GL.Color() have
         // already been called for this circle.
         private static void DrawCircle(float centerX, float centerY, float radius, int maxOrbitPoints)

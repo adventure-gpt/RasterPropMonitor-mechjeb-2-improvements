@@ -1688,19 +1688,37 @@ namespace JSI
         private void LoadAssets()
         {
             String assetsPath = KSPUtil.ApplicationRootPath + "GameData/JSI/RasterPropMonitor/";
-            // The shader bundle is named rasterpropmonitor-shaders.assetbundle (no platform suffix)
-            String shaderAssetBundleName = "rasterpropmonitor-shaders.assetbundle";
-
-            string fullPath = assetsPath + shaderAssetBundleName;
-            AssetBundle bundle = AssetBundle.LoadFromFile(fullPath);
-
-            if (bundle == null)
+            String shaderAssetBundleName = "rasterpropmonitor";
+            if (Application.platform == RuntimePlatform.WindowsPlayer)
             {
-                JUtil.LogErrorMessage(this, "Unable to load AssetBundle from {0}", fullPath);
+                shaderAssetBundleName += "-windows";
+            }
+            else if (Application.platform == RuntimePlatform.LinuxPlayer)
+            {
+                shaderAssetBundleName += "-linux";
+            }
+            else if (Application.platform == RuntimePlatform.OSXPlayer)
+            {
+                shaderAssetBundleName += "-osx";
+            }
+            shaderAssetBundleName += ".assetbundle";
+
+            WWW www = new WWW("file://" + assetsPath + shaderAssetBundleName);
+
+            if (!string.IsNullOrEmpty(www.error))
+            {
+                JUtil.LogErrorMessage(this, "Error loading AssetBundle: {0}", www.error);
+                return;
+            }
+            else if (www.assetBundle == null)
+            {
+                JUtil.LogErrorMessage(this, "Unable to load AssetBundle {0}", www);
                 return;
             }
 
             JUtil.parsedShaders.Clear();
+
+            AssetBundle bundle = www.assetBundle;
 
             string[] assetNames = bundle.GetAllAssetNames();
             int len = assetNames.Length;
@@ -1722,16 +1740,22 @@ namespace JSI
             bundle.Unload(false);
 
             string fontAssetBundleName = "rasterpropmonitor-font.assetbundle";
-            fullPath = assetsPath + fontAssetBundleName;
-            bundle = AssetBundle.LoadFromFile(fullPath);
+            www = new WWW("file://" + assetsPath + fontAssetBundleName);
 
-            if (bundle == null)
+            if (!string.IsNullOrEmpty(www.error))
             {
-                JUtil.LogErrorMessage(this, "Unable to load AssetBundle from {0}", fullPath);
+                JUtil.LogErrorMessage(this, "Error loading AssetBundle: {0}", www.error);
+                return;
+            }
+            else if (www.assetBundle == null)
+            {
+                JUtil.LogErrorMessage(this, "Unable to load AssetBundle {0}", www);
                 return;
             }
 
             JUtil.loadedFonts.Clear();
+
+            bundle = www.assetBundle;
 
             assetNames = bundle.GetAllAssetNames();
             len = assetNames.Length;

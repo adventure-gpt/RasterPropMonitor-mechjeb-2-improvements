@@ -48,18 +48,7 @@ namespace JSI
         [KSPField]
         public string backgroundTextureURL = string.Empty;
         private readonly List<GraphLine> graphs = new List<GraphLine>();
-        private static Material _lineMaterial;
-        public static Material lineMaterial
-        {
-            get
-            {
-                if (_lineMaterial == null)
-                {
-                    _lineMaterial = JUtil.DrawLineMaterial();
-                }
-                return _lineMaterial;
-            }
-        }
+        public static Material lineMaterial = JUtil.DrawLineMaterial();
         private Rect graphSpace;
         private double lastDataPoint;
         private Texture2D backgroundTexture;
