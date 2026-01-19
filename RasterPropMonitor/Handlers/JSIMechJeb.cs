@@ -286,22 +286,22 @@ namespace JSI
                     throw new NotImplementedException("mjGetComputerModule");
                 }
                 getComputerModule = DynamicMethodDelegateFactory.Create(mjGetComputerModule);
-                mjCoreTarget = mjMechJebCore_t.GetField("target", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreTarget = mjMechJebCore_t.GetField("Target", BindingFlags.Instance | BindingFlags.Public); // Was "target", now PascalCase
                 if (mjCoreTarget == null)
                 {
                     throw new NotImplementedException("mjCoreTarget");
                 }
-                mjCoreNode = mjMechJebCore_t.GetField("node", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreNode = mjMechJebCore_t.GetField("Node", BindingFlags.Instance | BindingFlags.Public); // Was "node", now PascalCase
                 if (mjCoreNode == null)
                 {
                     throw new NotImplementedException("mjCoreNode");
                 }
-                mjCoreAttitude = mjMechJebCore_t.GetField("attitude", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreAttitude = mjMechJebCore_t.GetField("Attitude", BindingFlags.Instance | BindingFlags.Public); // Was "attitude", now PascalCase
                 if (mjCoreAttitude == null)
                 {
                     throw new NotImplementedException("mjCoreAttitude");
                 }
-                mjCoreVesselState = mjMechJebCore_t.GetField("vesselState", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreVesselState = mjMechJebCore_t.GetField("VesselState", BindingFlags.Instance | BindingFlags.Public); // Was "vesselState", now PascalCase
                 if (mjCoreVesselState == null)
                 {
                     throw new NotImplementedException("mjCoreVesselState");
