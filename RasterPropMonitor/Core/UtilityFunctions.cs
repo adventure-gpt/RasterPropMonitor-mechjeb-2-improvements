@@ -1703,22 +1703,16 @@ namespace JSI
             }
             shaderAssetBundleName += ".assetbundle";
 
-            WWW www = new WWW("file://" + assetsPath + shaderAssetBundleName);
+            string shaderBundlePath = assetsPath + shaderAssetBundleName;
+            AssetBundle bundle = AssetBundle.LoadFromFile(shaderBundlePath);
 
-            if (!string.IsNullOrEmpty(www.error))
+            if (bundle == null)
             {
-                JUtil.LogErrorMessage(this, "Error loading AssetBundle: {0}", www.error);
-                return;
-            }
-            else if (www.assetBundle == null)
-            {
-                JUtil.LogErrorMessage(this, "Unable to load AssetBundle {0}", www);
+                JUtil.LogErrorMessage(this, "Unable to load shader AssetBundle from {0}", shaderBundlePath);
                 return;
             }
 
             JUtil.parsedShaders.Clear();
-
-            AssetBundle bundle = www.assetBundle;
 
             string[] assetNames = bundle.GetAllAssetNames();
             int len = assetNames.Length;
@@ -1740,22 +1734,16 @@ namespace JSI
             bundle.Unload(false);
 
             string fontAssetBundleName = "rasterpropmonitor-font.assetbundle";
-            www = new WWW("file://" + assetsPath + fontAssetBundleName);
+            string fontBundlePath = assetsPath + fontAssetBundleName;
+            bundle = AssetBundle.LoadFromFile(fontBundlePath);
 
-            if (!string.IsNullOrEmpty(www.error))
+            if (bundle == null)
             {
-                JUtil.LogErrorMessage(this, "Error loading AssetBundle: {0}", www.error);
-                return;
-            }
-            else if (www.assetBundle == null)
-            {
-                JUtil.LogErrorMessage(this, "Unable to load AssetBundle {0}", www);
+                JUtil.LogErrorMessage(this, "Unable to load font AssetBundle from {0}", fontBundlePath);
                 return;
             }
 
             JUtil.loadedFonts.Clear();
-
-            bundle = www.assetBundle;
 
             assetNames = bundle.GetAllAssetNames();
             len = assetNames.Length;
