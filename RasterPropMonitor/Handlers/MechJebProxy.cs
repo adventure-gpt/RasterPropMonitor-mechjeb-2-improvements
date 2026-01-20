@@ -1059,12 +1059,20 @@ namespace JSI
             m_Landing_LandAtPositionTarget = t_LandingAutopilot.GetMethod("LandAtPositionTarget", BindingFlags.Public | BindingFlags.Instance);
             m_Landing_LandUntargeted = t_LandingAutopilot.GetMethod("LandUntargeted", BindingFlags.Public | BindingFlags.Instance);
             m_Landing_StopLanding = t_LandingAutopilot.GetMethod("StopLanding", BindingFlags.Public | BindingFlags.Instance);
-            f_Landing_TouchdownSpeed = t_LandingAutopilot.GetField("touchdownSpeed", BindingFlags.Public | BindingFlags.Instance);
-            f_Landing_DeployGears = t_LandingAutopilot.GetField("deployGears", BindingFlags.Public | BindingFlags.Instance);
-            f_Landing_DeployChutes = t_LandingAutopilot.GetField("deployChutes", BindingFlags.Public | BindingFlags.Instance);
-            f_Landing_LimitGearsStage = t_LandingAutopilot.GetField("limitGearsStage", BindingFlags.Public | BindingFlags.Instance);
-            f_Landing_LimitChutesStage = t_LandingAutopilot.GetField("limitChutesStage", BindingFlags.Public | BindingFlags.Instance);
-            f_Landing_UseRCS = t_LandingAutopilot.GetField("rcsAdjustment", BindingFlags.Public | BindingFlags.Instance);
+            
+            // MechJeb 2.15.1 changed from camelCase to PascalCase - try new names first, fall back to old
+            f_Landing_TouchdownSpeed = t_LandingAutopilot.GetField("TouchdownSpeed", BindingFlags.Public | BindingFlags.Instance)
+                ?? t_LandingAutopilot.GetField("touchdownSpeed", BindingFlags.Public | BindingFlags.Instance);
+            f_Landing_DeployGears = t_LandingAutopilot.GetField("DeployGears", BindingFlags.Public | BindingFlags.Instance)
+                ?? t_LandingAutopilot.GetField("deployGears", BindingFlags.Public | BindingFlags.Instance);
+            f_Landing_DeployChutes = t_LandingAutopilot.GetField("DeployChutes", BindingFlags.Public | BindingFlags.Instance)
+                ?? t_LandingAutopilot.GetField("deployChutes", BindingFlags.Public | BindingFlags.Instance);
+            f_Landing_LimitGearsStage = t_LandingAutopilot.GetField("LimitGearsStage", BindingFlags.Public | BindingFlags.Instance)
+                ?? t_LandingAutopilot.GetField("limitGearsStage", BindingFlags.Public | BindingFlags.Instance);
+            f_Landing_LimitChutesStage = t_LandingAutopilot.GetField("LimitChutesStage", BindingFlags.Public | BindingFlags.Instance)
+                ?? t_LandingAutopilot.GetField("limitChutesStage", BindingFlags.Public | BindingFlags.Instance);
+            f_Landing_UseRCS = t_LandingAutopilot.GetField("RCSAdjustment", BindingFlags.Public | BindingFlags.Instance)
+                ?? t_LandingAutopilot.GetField("rcsAdjustment", BindingFlags.Public | BindingFlags.Instance);
             p_Landing_Status = t_LandingAutopilot.GetProperty("Status", BindingFlags.Public | BindingFlags.Instance);
 
             if (t_LandingPredictions != null)
