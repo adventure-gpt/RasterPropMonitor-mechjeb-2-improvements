@@ -30,6 +30,7 @@ namespace JSI
     /// </summary>
     internal static class RPMGlobals
     {
+        internal static readonly string configFileName = "GameData/JSI/RasterPropMonitor/Plugins/PluginData/rpm-config.cfg";
         internal const float KelvinToCelsius = -273.15f;
         internal const float MetersToFeet = 3.2808399f;
         internal const float MetersPerSecondToKnots = 1.94384449f;
@@ -47,7 +48,7 @@ namespace JSI
         /// </summary>
         internal static bool debugShowVariableCallCount = false;
 
-        internal static bool useNewVariableAnimator = true;
+        internal static bool useNewVariableAnimator = false;
 
         /// <summary>
         /// What is the minimum setting we want to allow for our variable

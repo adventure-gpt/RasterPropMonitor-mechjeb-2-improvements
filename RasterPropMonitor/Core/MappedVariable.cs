@@ -56,7 +56,7 @@ namespace JSI
             mappedExtent2 = rpmComp.InstantiateVariableOrNumber(destinations[1]);
         }
 
-        public double Evaluate()
+        public object Evaluate()
         {
             float lerp = sourceVariable.InverseLerp();
             float extent1 = mappedExtent1.AsFloat();

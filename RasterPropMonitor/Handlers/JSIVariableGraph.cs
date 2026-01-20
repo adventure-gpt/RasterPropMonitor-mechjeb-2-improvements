@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -48,18 +48,31 @@ namespace JSI
         [KSPField]
         public string backgroundTextureURL = string.Empty;
         private readonly List<GraphLine> graphs = new List<GraphLine>();
-		public static Material lineMaterial;
+        // Lazy initialization to avoid calling DrawLineMaterial before shaders are loaded
+        private static Material _lineMaterial;
+        public static Material lineMaterial
+        {
+            get
+            {
+                if (_lineMaterial == null)
+                {
+                    _lineMaterial = JUtil.DrawLineMaterial();
+                }
+                return _lineMaterial;
+            }
+        }
         private Rect graphSpace;
         private double lastDataPoint;
         private Texture2D backgroundTexture;
         // Because KSPField can't handle double. :E
         private double xGraphSpan, interval;
-        private Vector2[] borderVertices;
+        private readonly List<Vector2> borderVertices = new List<Vector2>();
         private bool startupComplete;
         private RasterPropMonitorComputer rpmComp;
 
         public void Start()
         {
+
             if (HighLogic.LoadedSceneIsEditor)
             {
                 return;
@@ -67,14 +80,9 @@ namespace JSI
 
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
 
-				if (lineMaterial == null)
-				{
-					lineMaterial = JUtil.DrawLineMaterial();
-				}
-
-				if (!string.IsNullOrEmpty(borderColor))
+                if (!string.IsNullOrEmpty(borderColor))
                 {
                     borderColorValue = ConfigNode.ParseColor32(borderColor);
                 }
@@ -105,10 +113,16 @@ namespace JSI
                 switch (borders)
                 {
                     case 2:
-                        borderVertices = new Vector2[] {bottomRight, bottomLeft, topLeft};
+                        borderVertices.Add(bottomRight);
+                        borderVertices.Add(bottomLeft);
+                        borderVertices.Add(topLeft);
                         break;
                     case 4:
-                        borderVertices = new Vector2[] {bottomLeft, topLeft, topRight, bottomRight, bottomLeft};
+                        borderVertices.Add(bottomLeft);
+                        borderVertices.Add(topLeft);
+                        borderVertices.Add(topRight);
+                        borderVertices.Add(bottomRight);
+                        borderVertices.Add(bottomLeft);
                         break;
                 }
 
@@ -154,7 +168,7 @@ namespace JSI
             foreach (GraphLine graph in graphs)
                 graph.Draw(graphSpace, time);
             if (borders > 0)
-                GraphLine.DrawVector(borderVertices, borderVertices.Length, borderColorValue);
+                GraphLine.DrawVector(borderVertices, borderColorValue);
 
             GL.PopMatrix();
             return true;
@@ -181,22 +195,17 @@ namespace JSI
         private class GraphLine
         {
             private readonly Color32 lineColor;
-            private readonly Vector2d[] points;
-            private readonly Vector2[] actualXY;
+            private readonly List<Vector2d> points = new List<Vector2d>();
             private readonly int maxPoints;
             private readonly VariableOrNumber variable;
             private readonly double horizontalSpan;
             // Analysis disable once FieldCanBeMadeReadOnly.Local
             private Vector2 verticalSpan;
             private bool floatingMax, floatingMin;
-            private int nextPoint = 0;
-            private int pointCount = 0;
 
             public GraphLine(ConfigNode node, RasterPropMonitorComputer rpmComp, double xSpan, Vector2 ySpan, double secondsBetweenSamples)
             {
                 maxPoints = (int)(xSpan / secondsBetweenSamples);
-                points = new Vector2d[maxPoints];
-                actualXY = new Vector2[maxPoints];
                 horizontalSpan = xSpan;
                 verticalSpan = ySpan;
                 if (!node.HasData)
@@ -225,33 +234,32 @@ namespace JSI
             public void Draw(Rect screenRect, double time)
             {
                 double mintime = time - horizontalSpan;
-                if (floatingMin && pointCount > 0)
+                if (floatingMin && points.Count > 0)
                 {
                     verticalSpan.x = (float)points[0].y;
-                    for (int pointIndex = 0; pointIndex < pointCount; ++pointIndex)
+                    foreach (Vector2d dataPoint in points)
                     {
-                        verticalSpan.x = (float)Math.Min(points[pointIndex].y, verticalSpan.x);
+                        verticalSpan.x = (float)Math.Min(dataPoint.y, verticalSpan.x);
                     }
                 }
-                if (floatingMax && pointCount > 0)
+                if (floatingMax && points.Count > 0)
                 {
                     verticalSpan.y = (float)points[0].y;
-                    for (int pointIndex = 0; pointIndex < pointCount; ++pointIndex)
+                    foreach (Vector2d dataPoint in points)
                     {
-                        verticalSpan.y = (float)Math.Max(points[pointIndex].y, verticalSpan.y);
+                        verticalSpan.y = (float)Math.Max(dataPoint.y, verticalSpan.y);
                     }
                 }
-
-                for (int pointIndex = 0; pointIndex < pointCount; ++pointIndex)
+                var actualXY = new List<Vector2>();
+                foreach (Vector2d dataPoint in points)
                 {
-                    int sourcePointIndex = (nextPoint + pointIndex - pointCount + maxPoints) % maxPoints;
-
-                    var dataPoint = points[sourcePointIndex];
-                    actualXY[pointIndex] = new Vector2(
-                        (float)JUtil.DualLerp(screenRect.xMin, screenRect.xMax, mintime, time, dataPoint.x),
-                        (float)JUtil.DualLerp(screenRect.yMin, screenRect.yMax, verticalSpan.x, verticalSpan.y, dataPoint.y));
+                    if (dataPoint.x > mintime)
+                        actualXY.Add(new Vector2(
+                            (float)JUtil.DualLerp(screenRect.xMin, screenRect.xMax, mintime, time, dataPoint.x),
+                            (float)JUtil.DualLerp(screenRect.yMin, screenRect.yMax, verticalSpan.x, verticalSpan.y, dataPoint.y)
+                        ));
                 }
-                DrawVector(actualXY, pointCount, lineColor);
+                DrawVector(actualXY, lineColor);
             }
 
             public void Update(double time)
@@ -261,22 +269,16 @@ namespace JSI
                 {
                     return;
                 }
-                points[nextPoint++] = new Vector2d(time, value);
-                
-                if (pointCount < maxPoints)
+                points.Add(new Vector2d(time, value));
+                if (points.Count > maxPoints)
                 {
-                    ++pointCount;
-                }
-
-                if (nextPoint == maxPoints)
-                {
-                    nextPoint = 0;
+                    points.RemoveRange(0, points.Count - maxPoints);
                 }
             }
 
-            public static void DrawVector(Vector2[] points, int numPoints, Color32 lineColor)
+            public static void DrawVector(List<Vector2> points, Color32 lineColor)
             {
-                if (numPoints  < 2)
+                if (points.Count < 2)
                     return;
                 GL.Begin(GL.LINES);
                 lineMaterial.SetPass(0);
@@ -284,7 +286,7 @@ namespace JSI
 
                 Vector2 start, end;
                 start = points[0];
-                for (int i = 1; i < numPoints; i++)
+                for (int i = 1; i < points.Count; i++)
                 {
                     end = points[i];
                     GL.Vertex(start);

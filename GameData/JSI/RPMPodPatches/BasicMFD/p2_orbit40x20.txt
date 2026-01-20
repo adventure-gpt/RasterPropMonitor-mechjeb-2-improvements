@@ -1,13 +1,13 @@
-----Orbit: {0,-16} Patch {1}/{2}---- $&$ PATCHORBITBODY PATCHINDEX PATCHCOUNT
-Vel: {0:SIP_10.1}m/s  Alt: {1:SIP_8.3}m  $&$ PATCHORBTSPEED PATCHALTITUDE
+----Orbit: {1,-15} Stage {0:00}---- $&$STAGE ORBITBODY 
+Vel: {0:SIP_10.1}m/s  Alt: {1:SIP_8.3}m  $&$ORBTSPEED ALTITUDE
 ------Node in T-----------ΔV:---THROTTLE---------------------------
 {0,17:MET+yy:ddd:hh:mm:ss.f}  |{1,9:0.00} |   {2,5:P0} $&$ MNODETIMESECS MNODEDV THROTTLE
 ----------------------------------------------
- ApA:  {0:SIP_6.1}m   INC:  {1,7:0.000}° $&$ PATCHAPOAPSIS PATCHINCLINATION
- PeA:  {0:SIP_6.1}m   ECC:  {1,7:0.000} $&$ PATCHPERIAPSIS PATCHECCENTRICITY
- ApT: {0:METyy:ddd:hh:mm:ss.f}  $&$ PATCHTIMETOAPSECS
- PeT:{0:MET-yy:ddd:hh:mm:ss.f}  $&$ PATCHTIMETOPESECS
-  OP: {0:METyy:ddd:hh:mm:ss.f}$&$ PATCHORBPERIODSECS
+ ApA:  {0:SIP_6.1}m   INC:  {1,7:0.000}° $&$APOAPSIS INCLINATION
+ PeA:  {0:SIP_6.1}m   ECC:  {1,7:0.000} $&$PERIAPSIS ECCENTRICITY
+ ApT: {0:METyy:ddd:hh:mm:ss.f}  $&$TIMETOAPSECS
+ PeT:{0:MET-yy:ddd:hh:mm:ss.f}  $&$TIMETOPESECS
+  OP: {0:METyy:ddd:hh:mm:ss.f}$&$ORBPERIODSECS
 
 {1:"Target: ";"";""}{0}{1:;"                                          ";""} $&$ TARGETNAME TARGETEXISTS
 {1:;"                                        ";""}Relative inclination: {0:0.000}° $&$RELATIVEINCLINATION TARGETEXISTS

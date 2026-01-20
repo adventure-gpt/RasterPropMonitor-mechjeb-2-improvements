@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -115,7 +115,7 @@ namespace JSI
         [KSPField]
         public int flickerRange;
         [KSPField]
-        public bool skipMissingCameras = true;
+        public bool skipMissingCameras = false;
         [KSPField]
         public string cameraInfoVarName = string.Empty;
         [KSPField]
@@ -151,8 +151,6 @@ namespace JSI
         private readonly Vector2 defaultFovLimits = new Vector2(60.0f, 60.0f);
         private readonly Vector2 defaultYawLimits = new Vector2(0.0f, 0.0f);
         private readonly Vector2 defaultPitchLimits = new Vector2(0.0f, 0.0f);
-
-        private bool isActivePage;
 
         private static Vector2 ClampToEdge(Vector2 position)
         {
@@ -204,35 +202,23 @@ namespace JSI
         /// <param name="pageID"></param>
         public void PageActive(bool state, int pageID)
         {
-            isActivePage = state;
-
             if (state == false && renderTex != null)
             {
-                cameraObject.PointCamera(null, 0);
                 UnityEngine.Object.Destroy(renderTex);
                 renderTex = null;
             }
 
-            if (cameraObject != null)
+            if (cameraObject == null)
             {
-                if (state)
-                {
-                    cameraObject.SetFlicker(flickerChance, flickerRange);
-
-                    if (currentCamera < cameras.Count)
-                    {
-                        cameraObject.PointCamera(cameras[currentCamera]);
-                    }
-                }
-                else
-                {
-                    cameraObject.SetFlicker(0, 0);
-                }
+                return;
             }
-
-            if (state && rpmComp != null)
+            if (state)
             {
-                rpmComp.RestoreInternalModule(this);
+                cameraObject.SetFlicker(flickerChance, flickerRange);
+            }
+            else
+            {
+                cameraObject.SetFlicker(0, 0);
             }
         }
 
@@ -258,8 +244,7 @@ namespace JSI
             if (cameraObject == null)
             {
                 cameraObject = new FlyingCamera(part, cameraAspect);
-                cameraObject.PointCamera(activeCamera);
-                cameraObject.SetFlicker(flickerChance, flickerRange);
+                cameraObject.PointCamera(activeCamera.cameraTransform, activeCamera.currentFoV);
             }
 
             cameraObject.FOV = activeCamera.currentFoV;
@@ -360,15 +345,24 @@ namespace JSI
 
                 return true;
             }
+            else if (skipMissingCameras)
+            {
+                // This will handle cameras getting ejected while in use.
+                SelectNextCamera();
+            }
 
             return false;
         }
 
         public override void OnUpdate()
         {
-            if (!isActivePage || cameraObject == null || cameras.Count == 0 || !JUtil.VesselIsInIVA(vessel))
+            if (!JUtil.VesselIsInIVA(vessel) || cameraObject == null)
             {
-                rpmComp.RemoveInternalModule(this);
+                return;
+            }
+
+            if (cameras.Count < 1)
+            {
                 return;
             }
 
@@ -398,11 +392,6 @@ namespace JSI
 
         public void OnDestroy()
         {
-            if (cameraObject != null)
-            {
-                cameraObject.CleanupCameraObjects();
-                cameraObject = null;
-            }
             if (homeCrosshairMaterial != null)
             {
                 UnityEngine.Object.Destroy(homeCrosshairMaterial);
@@ -502,9 +491,20 @@ namespace JSI
             lastUpdateTime = Planetarium.GetUniversalTime();
         }
 
-        void PointCamera(int incrementDirection)
+        private void SelectNextCamera()
         {
-            bool gotCamera = cameraObject.PointCamera(cameras[currentCamera]);
+            if (cameras.Count < 2)
+            {
+                return;
+            }
+
+            ++currentCamera;
+            if (currentCamera == cameras.Count)
+            {
+                currentCamera = 0;
+            }
+
+            bool gotCamera = cameraObject.PointCamera(cameras[currentCamera].cameraTransform, cameras[currentCamera].currentFoV);
 
             if (!skipMissingCameras)
             {
@@ -520,31 +520,19 @@ namespace JSI
             while (!gotCamera && camerasTested < cameras.Count)
             {
                 ++camerasTested;
-                currentCamera = (currentCamera + incrementDirection + cameras.Count) % cameras.Count;
-                
-                gotCamera = cameraObject.PointCamera(cameras[currentCamera]);
+                ++currentCamera;
+                if (currentCamera == cameras.Count)
+                {
+                    currentCamera = 0;
+                }
+
+                gotCamera = cameraObject.PointCamera(cameras[currentCamera].cameraTransform, cameras[currentCamera].currentFoV);
             }
 
             //if (rpmComp != null)
             //{
             //    rpmComp.SetPropVar(cameraInfoVarName + "_ID", internalProp.propID, currentCamera + 1);
             //}
-        }
-
-        private void SelectNextCamera()
-        {
-            if (cameras.Count < 2)
-            {
-                return;
-            }
-
-            ++currentCamera;
-            if (currentCamera == cameras.Count)
-            {
-                currentCamera = 0;
-            }
-
-            PointCamera(+1);
         }
 
         private void SelectPreviousCamera()
@@ -560,7 +548,34 @@ namespace JSI
                 currentCamera = cameras.Count - 1;
             }
 
-            PointCamera(-1);
+            bool gotCamera = cameraObject.PointCamera(cameras[currentCamera].cameraTransform, cameras[currentCamera].currentFoV);
+
+            if (!skipMissingCameras)
+            {
+                //if (rpmComp != null)
+                //{
+                //    rpmComp.SetPropVar(cameraInfoVarName + "_ID", internalProp.propID, currentCamera + 1);
+                //}
+                return;
+            }
+
+            int camerasTested = 1;
+
+            while (!gotCamera && camerasTested < cameras.Count)
+            {
+                ++camerasTested;
+                --currentCamera;
+                if (currentCamera < 0)
+                {
+                    currentCamera = cameras.Count - 1;
+                }
+
+                gotCamera = cameraObject.PointCamera(cameras[currentCamera].cameraTransform, cameras[currentCamera].currentFoV);
+            }
+            //if (rpmComp != null)
+            //{
+            //    rpmComp.SetPropVar(cameraInfoVarName + "_ID", internalProp.propID, currentCamera + 1);
+            //}
         }
 
         // Analysis disable once UnusedParameter
@@ -577,10 +592,7 @@ namespace JSI
             if (HighLogic.LoadedSceneIsEditor)
                 return;
 
-            rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
-
-            // remove the page until it's active
-            rpmComp.RemoveInternalModule(this);
+            rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
 
             if (string.IsNullOrEmpty(cameraTransform))
             {
@@ -711,7 +723,7 @@ namespace JSI
     public class SteerableCameraParameters
     {
         public readonly string cameraTransform;
-        public Vector2 fovLimits;
+        public readonly Vector2 fovLimits;
         public readonly Vector2 yawLimits;
         public readonly Vector2 pitchLimits;
         public readonly float zoomRate;

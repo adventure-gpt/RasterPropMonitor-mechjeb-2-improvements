@@ -20,88 +20,13 @@
  ****************************************************************************/
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace JSI
 {
     // Note 1: http://docs.unity3d.com/Manual/StyledText.html details the "richText" abilities
     public class JSILabel : InternalModule
     {
-        internal class TextBatchInfo : ScriptableObject
-        {
-            public void OnLoad(ConfigNode node)
-            {
-                variableName = node.GetValue(nameof(variableName));
-                node.TryGetValue(nameof(flashRate), ref flashRate);
-
-                string fontName = "Arial";
-                node.TryGetValue(nameof(fontName), ref fontName);
-                int fontQuality = 32;
-                node.TryGetValue(nameof(fontQuality), ref fontQuality);
-
-                font = JUtil.LoadFont(fontName, fontQuality);
-            }
-
-            public void OnStart(ConfigNode node, RasterPropMonitorComputer rpmComp)
-            {
-                ReadColor(node, nameof(zeroColor), rpmComp, ref zeroColor);
-                ReadColor(node, nameof(positiveColor), rpmComp, ref positiveColor);
-                ReadColor(node, nameof(negativeColor), rpmComp, ref negativeColor);
-            }
-
-            void ReadColor(ConfigNode node, string key, RasterPropMonitorComputer rpmComp, ref Color32 color)
-            {
-                var colorString = node.GetValue(key);
-                if (colorString != null)
-                {
-                    color = JUtil.ParseColor32(colorString, rpmComp);
-                }
-            }
-
-            public override bool Equals(object obj)
-            {
-                // TODO: technically we don't need to differentiate labels by color even if they are connected to a variable, but we do need to store the colors per-label...
-                return obj is TextBatchInfo info &&
-                       variableName == info.variableName &&
-                       font == info.font &&
-                       (variableName == null || 
-                           (EqualityComparer<Color32>.Default.Equals(zeroColor, info.zeroColor) &&
-                           EqualityComparer<Color32>.Default.Equals(positiveColor, info.positiveColor) &&
-                           EqualityComparer<Color32>.Default.Equals(negativeColor, info.negativeColor))
-                       ) &&
-                       flashRate == info.flashRate;
-            }
-
-            public override int GetHashCode()
-            {
-                var hashCode = -1112470117;
-                hashCode = hashCode * -1521134295 + EqualityComparer<string>.Default.GetHashCode(variableName);
-                hashCode = hashCode * -1521134295 + font.GetHashCode();
-
-                if (variableName != null)
-                {
-                    hashCode = hashCode * -1521134295 + zeroColor.GetHashCode();
-                    hashCode = hashCode * -1521134295 + positiveColor.GetHashCode();
-                    hashCode = hashCode * -1521134295 + negativeColor.GetHashCode();
-                }
-
-                hashCode = hashCode * -1521134295 + flashRate.GetHashCode();
-                return hashCode;
-            }
-
-            public string variableName;
-            public Font font;
-            public Color32 zeroColor = XKCDColors.White;
-            public Color32 positiveColor = XKCDColors.White;
-            public Color32 negativeColor = XKCDColors.White;
-            public float flashRate = 0.0f;
-        }
-
-        [SerializeReference] ConfigNodeHolder moduleConfig;
-        [SerializeField] internal TextBatchInfo batchInfo;
-
         [KSPField]
         public string labelText = "uninitialized";
         [KSPField]
@@ -109,9 +34,9 @@ namespace JSI
         [KSPField]
         public Vector2 transformOffset = Vector2.zero;
         [KSPField]
-        public EmissiveMode emissive;
-        float lastEmissiveValue = -1;
-        public enum EmissiveMode
+        public string emissive = string.Empty;
+        private EmissiveMode emissiveMode = EmissiveMode.always;
+        enum EmissiveMode
         {
             always,
             never,
@@ -119,15 +44,21 @@ namespace JSI
             passive,
             flash
         };
+        [KSPField]
+        public float flashRate = 0.0f;
 
         [KSPField]
         public float fontSize = 8.0f;
         [KSPField]
         public float lineSpacing = 1.0f;
         [KSPField]
-        public TextAnchor anchor;
+        public string fontName = "Arial";
         [KSPField]
-        public TextAlignment alignment;
+        public string anchor = string.Empty;
+        [KSPField]
+        public string alignment = string.Empty;
+        [KSPField]
+        public int fontQuality = 32;
 
         [KSPField]
         public string switchTransform = string.Empty;
@@ -141,60 +72,38 @@ namespace JSI
         [KSPField]
         public bool oneshot;
         [KSPField]
-        public bool canBatch;
-
+        public string variableName = string.Empty;
+        [KSPField]
+        public string positiveColor = string.Empty;
+        private Color positiveColorValue = XKCDColors.White;
+        [KSPField]
+        public string negativeColor = string.Empty;
+        private Color negativeColorValue = XKCDColors.White;
+        [KSPField]
+        public string zeroColor = string.Empty;
+        private Color zeroColorValue = XKCDColors.White;
         private bool variablePositive = false;
         private bool flashOn = true;
 
-        [SerializeField] internal JSITextMesh textObj;
-        public static readonly int emissiveFactorIndex = Shader.PropertyToID("_EmissiveFactor");
+        private JSITextMesh textObj;
+        private Font font;
+        private readonly int emissiveFactorIndex = Shader.PropertyToID("_EmissiveFactor");
 
-        private List<StringProcessorFormatter> labels = new List<StringProcessorFormatter>();
+        private List<JSILabelSet> labels = new List<JSILabelSet>();
         private int activeLabel = 0;
         private FXGroup audioOutput;
 
         private int updateCountdown;
         private Action<float> del;
-        
-        internal RasterPropMonitorComputer rpmComp;
+        /// <summary>
+        /// The Guid of the vessel we belonged to at Start.  When undocking,
+        /// KSP will change the vessel member variable before calling OnDestroy,
+        /// which prevents us from getting the RPMVesselComputer we registered
+        /// with.  So we have to store the Guid separately.
+        /// </summary>
+        private Guid registeredVessel = Guid.Empty;
+        RasterPropMonitorComputer rpmComp;
         private JSIFlashModule fm;
-
-        public override void OnLoad(ConfigNode node)
-        {
-            moduleConfig = ScriptableObject.CreateInstance<ConfigNodeHolder>();
-            moduleConfig.Node = node;
-
-            batchInfo = ScriptableObject.CreateInstance<TextBatchInfo>();
-            batchInfo.OnLoad(node);
-
-            Transform textObjTransform = JUtil.FindPropTransform(internalProp, transformName);
-            
-            if (textObjTransform == null)
-            {
-                JUtil.LogErrorMessage(this, "Transform named {0} not found in prop {1}", transformName, internalProp.propName);
-                return;
-            }
-            
-            Vector3 localScale = internalProp.transform.localScale;
-            Transform offsetTransform = new GameObject().transform;
-            offsetTransform.gameObject.name = "JSILabel-" + this.internalProp.propID + "-" + this.GetHashCode().ToString();
-            offsetTransform.gameObject.layer = textObjTransform.gameObject.layer;
-            offsetTransform.SetParent(textObjTransform, false);
-            offsetTransform.Translate(transformOffset.x * localScale.x, transformOffset.y * localScale.y, 0.0f);
-
-            textObj = offsetTransform.gameObject.AddComponent<JSITextMesh>();
-
-            textObj.font = batchInfo.font;
-            //textObj.fontSize = fontQuality; // This doesn't work with Unity-embedded fonts
-            textObj.fontSize = batchInfo.font.fontSize;
-
-            textObj.anchor = anchor;
-            textObj.alignment = alignment;
-
-            float sizeScalar = 32.0f / (float)batchInfo.font.fontSize;
-            textObj.characterSize = fontSize * 0.00005f * sizeScalar;
-            textObj.lineSpacing *= lineSpacing;
-        }
 
         /// <summary>
         /// Start everything up and get it configured.
@@ -208,13 +117,98 @@ namespace JSI
 
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
 
-                batchInfo.OnStart(moduleConfig.Node, rpmComp);
+                Transform textObjTransform = internalProp.FindModelTransform(transformName);
+                Vector3 localScale = internalProp.transform.localScale;
+
+                Transform offsetTransform = new GameObject().transform;
+                offsetTransform.gameObject.name = "JSILabel-" + this.internalProp.propID + "-" + this.GetHashCode().ToString();
+                offsetTransform.gameObject.layer = textObjTransform.gameObject.layer;
+                offsetTransform.SetParent(textObjTransform, false);
+                offsetTransform.Translate(transformOffset.x * localScale.x, transformOffset.y * localScale.y, 0.0f);
+
+                textObj = offsetTransform.gameObject.AddComponent<JSITextMesh>();
+
+                font = JUtil.LoadFont(fontName, fontQuality);
+
+                textObj.font = font;
+                //textObj.fontSize = fontQuality; // This doesn't work with Unity-embedded fonts
+                textObj.fontSize = font.fontSize;
+
+                if (!string.IsNullOrEmpty(anchor))
+                {
+                    if (anchor == TextAnchor.LowerCenter.ToString())
+                    {
+                        textObj.anchor = TextAnchor.LowerCenter;
+                    }
+                    else if (anchor == TextAnchor.LowerLeft.ToString())
+                    {
+                        textObj.anchor = TextAnchor.LowerLeft;
+                    }
+                    else if (anchor == TextAnchor.LowerRight.ToString())
+                    {
+                        textObj.anchor = TextAnchor.LowerRight;
+                    }
+                    else if (anchor == TextAnchor.MiddleCenter.ToString())
+                    {
+                        textObj.anchor = TextAnchor.MiddleCenter;
+                    }
+                    else if (anchor == TextAnchor.MiddleLeft.ToString())
+                    {
+                        textObj.anchor = TextAnchor.MiddleLeft;
+                    }
+                    else if (anchor == TextAnchor.MiddleRight.ToString())
+                    {
+                        textObj.anchor = TextAnchor.MiddleRight;
+                    }
+                    else if (anchor == TextAnchor.UpperCenter.ToString())
+                    {
+                        textObj.anchor = TextAnchor.UpperCenter;
+                    }
+                    else if (anchor == TextAnchor.UpperLeft.ToString())
+                    {
+                        textObj.anchor = TextAnchor.UpperLeft;
+                    }
+                    else if (anchor == TextAnchor.UpperRight.ToString())
+                    {
+                        textObj.anchor = TextAnchor.UpperRight;
+                    }
+                    else
+                    {
+                        JUtil.LogErrorMessage(this, "Unrecognized anchor '{0}' in config for {1} ({2})", anchor, internalProp.propID, internalProp.propName);
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(alignment))
+                {
+                    if (alignment == TextAlignment.Center.ToString())
+                    {
+                        textObj.alignment = TextAlignment.Center;
+                    }
+                    else if (alignment == TextAlignment.Left.ToString())
+                    {
+                        textObj.alignment = TextAlignment.Left;
+                    }
+                    else if (alignment == TextAlignment.Right.ToString())
+                    {
+                        textObj.alignment = TextAlignment.Right;
+                    }
+                    else
+                    {
+                        JUtil.LogErrorMessage(this, "Unrecognized alignment '{0}' in config for {1} ({2})", alignment, internalProp.propID, internalProp.propName);
+                    }
+                }
+
+                float sizeScalar = 32.0f / (float)font.fontSize;
+                textObj.characterSize = fontSize * 0.00005f * sizeScalar;
+                textObj.lineSpacing = textObj.lineSpacing * lineSpacing;
 
                 // "Normal" mode
                 if (string.IsNullOrEmpty(switchTransform))
                 {
+                    // Force oneshot if there's no variables:
+                    oneshot |= !labelText.Contains("$&$");
                     string sourceString = labelText.UnMangleConfigText();
 
                     if (!string.IsNullOrEmpty(sourceString) && sourceString.Length > 1)
@@ -225,21 +219,9 @@ namespace JSI
                             sourceString = sourceString.Substring(1);
                         }
                     }
-                    labels.Add(new StringProcessorFormatter(sourceString, rpmComp));
-                    oneshot |= labels[0].IsConstant;
+                    labels.Add(new JSILabelSet(sourceString, rpmComp, oneshot));
 
-                    if (oneshot)
-                    {
-                        textObj.text = labels[0].GetFormattedString();
-
-                        var propBatcher = internalModel.GetComponentInChildren<PropBatcher>();
-                        if (propBatcher != null && canBatch)
-                        {
-                            propBatcher.AddStaticLabel(this);
-                            return;
-                        }
-                    }
-                    else
+                    if (!oneshot)
                     {
                         rpmComp.UpdateDataRefreshRate(refreshRate);
                     }
@@ -249,48 +231,97 @@ namespace JSI
                     SmarterButton.CreateButton(internalProp, switchTransform, Click);
                     audioOutput = JUtil.SetupIVASound(internalProp, switchSound, switchSoundVolume, false);
 
-                    ConfigNode[] variableNodes = moduleConfig.Node.GetNodes("VARIABLESET");
-
-                    for (int i = 0; i < variableNodes.Length; i++)
+                    foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("PROP"))
                     {
-                        try
+                        if (node.GetValue("name") == internalProp.propName)
                         {
-                            string lText = variableNodes[i].GetValue("labelText");
-                            if (lText != null)
+                            ConfigNode moduleConfig = node.GetNodes("MODULE")[moduleID];
+                            ConfigNode[] variableNodes = moduleConfig.GetNodes("VARIABLESET");
+
+                            for (int i = 0; i < variableNodes.Length; i++)
                             {
-                                string sourceString = lText.UnMangleConfigText();
-                                labels.Add(new StringProcessorFormatter(sourceString, rpmComp));
-                                if (!labels.Last().IsConstant)
+                                try
                                 {
-                                    rpmComp.UpdateDataRefreshRate(refreshRate);
+                                    bool lOneshot = false;
+                                    if (variableNodes[i].HasValue("oneshot"))
+                                    {
+                                        bool.TryParse(variableNodes[i].GetValue("oneshot"), out lOneshot);
+                                    }
+                                    if (variableNodes[i].HasValue("labelText"))
+                                    {
+                                        string lText = variableNodes[i].GetValue("labelText");
+                                        string sourceString = lText.UnMangleConfigText();
+                                        lOneshot |= !lText.Contains("$&$");
+                                        labels.Add(new JSILabelSet(sourceString, rpmComp, lOneshot));
+                                        if (!lOneshot)
+                                        {
+                                            rpmComp.UpdateDataRefreshRate(refreshRate);
+                                        }
+                                    }
+                                }
+                                catch (ArgumentException e)
+                                {
+                                    JUtil.LogErrorMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propID);
                                 }
                             }
-                        }
-                        catch (ArgumentException e)
-                        {
-                            JUtil.LogErrorMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propID);
+                            break;
                         }
                     }
+
                 }
 
-                textObj.color = batchInfo.zeroColor;
-
-                if (!string.IsNullOrEmpty(batchInfo.variableName))
+                if (!string.IsNullOrEmpty(zeroColor))
                 {
-                    del = (Action<float>)Delegate.CreateDelegate(typeof(Action<float>), this, "OnCallback");
-                    rpmComp.RegisterVariableCallback(batchInfo.variableName, del);
+                    zeroColorValue = JUtil.ParseColor32(zeroColor, part, ref rpmComp);
+                    textObj.color = zeroColorValue;
+                }
 
-                    emissive = EmissiveMode.active;
+                bool usesMultiColor = false;
+                if (!(string.IsNullOrEmpty(variableName) || string.IsNullOrEmpty(positiveColor) || string.IsNullOrEmpty(negativeColor) || string.IsNullOrEmpty(zeroColor)))
+                {
+                    usesMultiColor = true;
+                    positiveColorValue = JUtil.ParseColor32(positiveColor, part, ref rpmComp);
+                    negativeColorValue = JUtil.ParseColor32(negativeColor, part, ref rpmComp);
+                    del = (Action<float>)Delegate.CreateDelegate(typeof(Action<float>), this, "OnCallback");
+                    rpmComp.RegisterVariableCallback(variableName, del);
+                    registeredVessel = vessel.id;
 
                     // Initialize the text color.  Actually, callback registration takes care of that.
                 }
 
-                if (emissive == EmissiveMode.flash)
+                if (string.IsNullOrEmpty(emissive))
                 {
-                    if (batchInfo.flashRate > 0.0f)
+                    if (usesMultiColor)
                     {
-                        emissive = EmissiveMode.flash;
-                        fm = JUtil.InstallFlashModule(part, batchInfo.flashRate);
+                        emissiveMode = EmissiveMode.active;
+                    }
+                    else
+                    {
+                        emissiveMode = EmissiveMode.always;
+                    }
+                }
+                else if (emissive.ToLower() == EmissiveMode.always.ToString())
+                {
+                    emissiveMode = EmissiveMode.always;
+                }
+                else if (emissive.ToLower() == EmissiveMode.never.ToString())
+                {
+                    emissiveMode = EmissiveMode.never;
+                }
+                else if (emissive.ToLower() == EmissiveMode.active.ToString())
+                {
+                    emissiveMode = EmissiveMode.active;
+                }
+                else if (emissive.ToLower() == EmissiveMode.passive.ToString())
+                {
+                    emissiveMode = EmissiveMode.passive;
+                }
+                else if (emissive.ToLower() == EmissiveMode.flash.ToString())
+                {
+                    if (flashRate > 0.0f)
+                    {
+                        emissiveMode = EmissiveMode.flash;
+                        fm = JUtil.InstallFlashModule(part, flashRate);
                         if (fm != null)
                         {
                             fm.flashSubscribers += FlashToggle;
@@ -298,8 +329,13 @@ namespace JSI
                     }
                     else
                     {
-                        emissive = EmissiveMode.active;
+                        emissiveMode = EmissiveMode.active;
                     }
+                }
+                else
+                {
+                    JUtil.LogErrorMessage(this, "Unrecognized emissive mode '{0}' in config for {1} ({2})", emissive, internalProp.propID, internalProp.propName);
+                    emissiveMode = EmissiveMode.always;
                 }
 
                 UpdateShader();
@@ -307,7 +343,7 @@ namespace JSI
             catch (Exception e)
             {
                 JUtil.LogErrorMessage(this, "Start failed in prop {1} ({2}) with exception {0}", e, internalProp.propID, internalProp.propName);
-                labels.Add(new StringProcessorFormatter("ERR", rpmComp));
+                labels.Add(new JSILabelSet("ERR", rpmComp, true));
             }
         }
 
@@ -322,7 +358,7 @@ namespace JSI
 
             if(variablePositive)
             {
-                textObj.color = (flashOn) ? batchInfo.positiveColor : batchInfo.negativeColor;
+                textObj.color = (flashOn) ? positiveColorValue : negativeColorValue;
             }
         }
 
@@ -338,13 +374,7 @@ namespace JSI
                 activeLabel = 0;
             }
 
-            textObj.text = labels[activeLabel].GetFormattedString();
-
-            // do we need to activate the update loop?
-            if (labels.Count > 1 && !labels[activeLabel].IsConstant)
-            {
-                rpmComp.RestoreInternalModule(this);
-            }
+            textObj.text = StringProcessor.ProcessString(labels[activeLabel].spf, rpmComp);
 
             // Force an update.
             updateCountdown = 0;
@@ -362,19 +392,19 @@ namespace JSI
         private void UpdateShader()
         {
             float emissiveValue;
-            if (emissive == EmissiveMode.always)
+            if (emissiveMode == EmissiveMode.always)
             {
                 emissiveValue = 1.0f;
             }
-            else if (emissive == EmissiveMode.never)
+            else if (emissiveMode == EmissiveMode.never)
             {
                 emissiveValue = 0.0f;
             }
-            else if (emissive == EmissiveMode.flash)
+            else if (emissiveMode == EmissiveMode.flash)
             {
                 emissiveValue = (variablePositive && flashOn) ? 1.0f : 0.0f;
             }
-            else if (variablePositive ^ (emissive == EmissiveMode.passive))
+            else if (variablePositive ^ (emissiveMode == EmissiveMode.passive))
             {
                 emissiveValue = 1.0f;
             }
@@ -383,11 +413,7 @@ namespace JSI
                 emissiveValue = 0.0f;
             }
 
-            if (emissiveValue != lastEmissiveValue)
-            {
-                textObj.material.SetFloat(emissiveFactorIndex, emissiveValue);
-                lastEmissiveValue = emissiveValue;
-            }
+            textObj.material.SetFloat(emissiveFactorIndex, emissiveValue);
         }
 
         /// <summary>
@@ -405,13 +431,15 @@ namespace JSI
             {
                 try
                 {
-                    rpmComp.UnregisterVariableCallback(batchInfo.variableName, del);
+                    rpmComp.UnregisterVariableCallback(variableName, del);
                 }
                 catch
                 {
                     //JUtil.LogMessage(this, "Trapped exception unregistering JSIVariableLabel (you can ignore this)");
                 }
             }
+            Destroy(textObj);
+            textObj = null;
         }
 
         /// <summary>
@@ -424,7 +452,7 @@ namespace JSI
             if (vessel == null)
             {
                 // We're not attached to a ship?
-                rpmComp.UnregisterVariableCallback(batchInfo.variableName, del);
+                rpmComp.UnregisterVariableCallback(variableName, del);
                 JUtil.LogErrorMessage(this, "Received an unexpected OnCallback()");
                 return;
             }
@@ -435,9 +463,9 @@ namespace JSI
                 // getting called when textObj is null - did the callback
                 // fail to unregister on destruction?  It can't get called
                 // before textObj is created.
-                if (del != null && !string.IsNullOrEmpty(batchInfo.variableName))
+                if (del != null && !string.IsNullOrEmpty(variableName))
                 {
-                    rpmComp.UnregisterVariableCallback(batchInfo.variableName, del);
+                    rpmComp.UnregisterVariableCallback(variableName, del);
                 }
                 JUtil.LogErrorMessage(this, "Received an unexpected OnCallback() when textObj was null");
                 return;
@@ -445,21 +473,19 @@ namespace JSI
 
             if (value < 0.0f)
             {
-                textObj.color = batchInfo.negativeColor;
+                textObj.color = negativeColorValue;
                 variablePositive = false;
             }
             else if (value > 0.0f)
             {
-                textObj.color = (flashOn) ? batchInfo.positiveColor : batchInfo.negativeColor;
+                textObj.color = (flashOn) ? positiveColorValue : negativeColorValue;
                 variablePositive = true;
             }
             else
             {
-                textObj.color = batchInfo.zeroColor;
+                textObj.color = zeroColorValue;
                 variablePositive = false;
             }
-
-            UpdateShader();
         }
 
         /// <summary>
@@ -482,18 +508,41 @@ namespace JSI
         /// </summary>
         public override void OnUpdate()
         {
-            if (textObj == null || labels[activeLabel].IsConstant)
+            if (textObj == null)
             {
                 // Shouldn't happen ... but it does, thanks to the quirks of
                 // docking and undocking.
-                rpmComp.RemoveInternalModule(this);
                 return;
             }
 
-            if (UpdateCheck() && JUtil.RasterPropMonitorShouldUpdate(part))
+            // Update shader parameters
+            UpdateShader();
+
+            if (labels[activeLabel].oneshotComplete && labels[activeLabel].oneshot)
             {
-                textObj.text = labels[activeLabel].GetFormattedString();
+                return;
+            }
+
+            if (JUtil.RasterPropMonitorShouldUpdate(vessel) && UpdateCheck())
+            {
+                textObj.text = StringProcessor.ProcessString(labels[activeLabel].spf, rpmComp);
+                labels[activeLabel].oneshotComplete = true;
             }
         }
     }
+
+    internal class JSILabelSet
+    {
+        public readonly StringProcessorFormatter spf;
+        public bool oneshotComplete;
+        public readonly bool oneshot;
+
+        internal JSILabelSet(string labelText, RasterPropMonitorComputer rpmComp, bool isOneshot)
+        {
+            oneshot = isOneshot;
+            oneshotComplete = false;
+            spf = new StringProcessorFormatter(labelText, rpmComp);
+        }
+    }
+
 }

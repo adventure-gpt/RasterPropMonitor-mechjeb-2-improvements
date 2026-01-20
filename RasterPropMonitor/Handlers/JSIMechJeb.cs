@@ -1,4 +1,4 @@
-/*****************************************************************************
+﻿/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -259,6 +259,7 @@ namespace JSI
 
         static JSIMechJeb()
         {
+            UnityEngine.Debug.Log("[JSIMechJeb] Static constructor starting...");
             Type mjMechJebCore_t = null;
             try
             {
@@ -266,11 +267,11 @@ namespace JSI
 
                 if (loadedMechJebAssy == null)
                 {
+                    UnityEngine.Debug.Log("[JSIMechJeb] MechJeb2 assembly not found");
                     mjFound = false;
-                    //JUtil.LogMessage(this, "A supported version of MechJeb is {0}", (mjFound) ? "present" : "not available");
-
                     return;
                 }
+                UnityEngine.Debug.Log("[JSIMechJeb] MechJeb2 assembly found: " + loadedMechJebAssy.assembly.FullName);
 
                 //--- Process all the reflection info
                 // MechJebCore
@@ -278,6 +279,7 @@ namespace JSI
                     .SingleOrDefault(t => t.FullName == "MuMech.MechJebCore");
                 if (mjMechJebCore_t == null)
                 {
+                    UnityEngine.Debug.Log("[JSIMechJeb] MuMech.MechJebCore not found");
                     return;
                 }
                 MethodInfo mjGetComputerModule = mjMechJebCore_t.GetMethod("GetComputerModule", new Type[] { typeof(string) });
@@ -286,23 +288,22 @@ namespace JSI
                     throw new NotImplementedException("mjGetComputerModule");
                 }
                 getComputerModule = DynamicMethodDelegateFactory.Create(mjGetComputerModule);
-                // MechJeb 2.15+ uses PascalCase field names
-                mjCoreTarget = mjMechJebCore_t.GetField("Target", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreTarget = mjMechJebCore_t.GetField("Target", BindingFlags.Instance | BindingFlags.Public); // Was "target", now PascalCase
                 if (mjCoreTarget == null)
                 {
                     throw new NotImplementedException("mjCoreTarget");
                 }
-                mjCoreNode = mjMechJebCore_t.GetField("Node", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreNode = mjMechJebCore_t.GetField("Node", BindingFlags.Instance | BindingFlags.Public); // Was "node", now PascalCase
                 if (mjCoreNode == null)
                 {
                     throw new NotImplementedException("mjCoreNode");
                 }
-                mjCoreAttitude = mjMechJebCore_t.GetField("Attitude", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreAttitude = mjMechJebCore_t.GetField("Attitude", BindingFlags.Instance | BindingFlags.Public); // Was "attitude", now PascalCase
                 if (mjCoreAttitude == null)
                 {
                     throw new NotImplementedException("mjCoreAttitude");
                 }
-                mjCoreVesselState = mjMechJebCore_t.GetField("VesselState", BindingFlags.Instance | BindingFlags.Public);
+                mjCoreVesselState = mjMechJebCore_t.GetField("VesselState", BindingFlags.Instance | BindingFlags.Public); // Was "vesselState", now PascalCase
                 if (mjCoreVesselState == null)
                 {
                     throw new NotImplementedException("mjCoreVesselState");
@@ -400,7 +401,6 @@ namespace JSI
                 {
                     throw new NotImplementedException("mjAbsoluteVector_t");
                 }
-                // MechJeb 2.15+ uses PascalCase
                 mjAbsoluteVectorLat = mjAbsoluteVector_t.GetField("Latitude", BindingFlags.Instance | BindingFlags.Public);
                 if (mjAbsoluteVectorLat == null)
                 {
@@ -413,14 +413,15 @@ namespace JSI
                 }
 
                 // MechJebModuleAscentSettings - contains orbit altitude, inclination, and autopilot access
-                // Note: MJ 2.15+ consolidated AscentAutopilot and AscentGuidance into AscentSettings
+                // Note: Old MJ had separate MechJebModuleAscentAutopilot and MechJebModuleAscentGuidance
+                // In newer MJ (2.5+), these are consolidated in MechJebModuleAscentSettings
                 Type mjMechJebModuleAscentSettings_t = loadedMechJebAssy.assembly.GetExportedTypes()
                     .SingleOrDefault(t => t.FullName == "MuMech.MechJebModuleAscentSettings");
                 if (mjMechJebModuleAscentSettings_t == null)
                 {
                     throw new NotImplementedException("mjMechJebModuleAscentSettings_t");
                 }
-                // DesiredOrbitAltitude field (PascalCase in MJ 2.15+)
+                // DesiredOrbitAltitude field (PascalCase in newer MJ)
                 launchOrbitAltitude = mjMechJebModuleAscentSettings_t.GetField("DesiredOrbitAltitude", BindingFlags.Instance | BindingFlags.Public);
                 if (launchOrbitAltitude == null)
                 {
@@ -432,7 +433,7 @@ namespace JSI
                 {
                     throw new NotImplementedException("launchOrbitInclination");
                 }
-
+                
                 // AscentAutopilot property returns the current autopilot module
                 // The autopilot's Enabled property (inherited from ComputerModule) controls engagement
                 PropertyInfo aapAutopilot = mjMechJebModuleAscentSettings_t.GetProperty("AscentAutopilot", BindingFlags.Instance | BindingFlags.Public);
@@ -463,7 +464,7 @@ namespace JSI
                 {
                     throw new NotImplementedException("mjEditableDoubleMult_t");
                 }
-                // MJ 2.15+ made multiplier private (_multiplier), so skip lookup - it's not used anyway
+                // multiplier field is now private (_multiplier) and not used, so skip lookup
                 PropertyInfo edmVal = mjEditableDoubleMult_t.GetProperty("Val"); // Was "val", now PascalCase
                 if (edmVal == null)
                 {
@@ -556,9 +557,10 @@ namespace JSI
                 }
                 getTargetOrbit = DynamicMethodDelegateFactory.CreateFuncObject(mjGetTargetOrbit);
 
-                // FuelStats type - In MJ 2.15+, this is in MechJebLib.FuelFlowSimulation.FuelStats (separate assembly)
+                // FuelStats type - In new MJ2, this is in MechJebLib.FuelFlowSimulation.FuelStats (separate assembly)
+                // In old MJ2, it was MuMech.FuelFlowSimulation.FuelStats (nested type)
                 Type mjFuelStats_t = null;
-
+                
                 // First try to find MechJebLib assembly (new MJ2 structure)
                 AssemblyLoader.LoadedAssembly mechJebLibAssy = AssemblyLoader.loadedAssemblies
                     .SingleOrDefault(a => a.assembly.GetName().Name == "MechJebLib");
@@ -567,7 +569,7 @@ namespace JSI
                     mjFuelStats_t = mechJebLibAssy.assembly.GetExportedTypes()
                         .SingleOrDefault(t => t.FullName == "MechJebLib.FuelFlowSimulation.FuelStats");
                 }
-
+                
                 // If not found, try old structure (nested type in MuMech.FuelFlowSimulation)
                 if (mjFuelStats_t == null)
                 {
@@ -575,15 +577,15 @@ namespace JSI
                         .SingleOrDefault(t => t.FullName == "MuMech.FuelFlowSimulation");
                     if (mjFuelFlowSimulation_t != null)
                     {
-                        mjFuelStats_t = mjFuelFlowSimulation_t.GetNestedType("FuelStats") ?? mjFuelFlowSimulation_t.GetNestedType("Stats");
+                        mjFuelStats_t = mjFuelFlowSimulation_t.GetNestedType("FuelStats");
                     }
                 }
-
+                
                 if (mjFuelStats_t == null)
                 {
                     throw new NotImplementedException("mjFuelStats_t");
                 }
-                // DeltaV field - note capital V in MJ 2.15+
+                // DeltaV field - note capital V in new MJ2
                 mjStageDv = mjFuelStats_t.GetField("DeltaV", BindingFlags.Instance | BindingFlags.Public);
                 if (mjStageDv == null)
                 {
@@ -607,17 +609,17 @@ namespace JSI
                 {
                     throw new NotImplementedException("mjReentryResult_t");
                 }
-                mjReentryOutcome = mjReentryResult_t.GetField("Outcome", BindingFlags.Instance | BindingFlags.Public); // MJ 2.15+ PascalCase
+                mjReentryOutcome = mjReentryResult_t.GetField("Outcome", BindingFlags.Instance | BindingFlags.Public); // Was "outcome", now PascalCase
                 if (mjReentryOutcome == null)
                 {
                     throw new NotImplementedException("mjReentryOutcome");
                 }
-                mjReentryEndPosition = mjReentryResult_t.GetField("EndPosition", BindingFlags.Instance | BindingFlags.Public); // MJ 2.15+ PascalCase
+                mjReentryEndPosition = mjReentryResult_t.GetField("EndPosition", BindingFlags.Instance | BindingFlags.Public); // Was "endPosition", now PascalCase
                 if (mjReentryEndPosition == null)
                 {
                     throw new NotImplementedException("mjReentryEndPosition");
                 }
-                mjReentryTime = mjReentryResult_t.GetField("EndUT", BindingFlags.Instance | BindingFlags.Public); // MJ 2.15+ PascalCase
+                mjReentryTime = mjReentryResult_t.GetField("EndUT", BindingFlags.Instance | BindingFlags.Public); // Was "endUT", now PascalCase
                 if (mjReentryTime == null)
                 {
                     throw new NotImplementedException("mjReentryTime");
@@ -714,7 +716,7 @@ namespace JSI
                 // EditableDouble
                 Type mjEditableDouble_t = loadedMechJebAssy.assembly.GetExportedTypes()
                     .SingleOrDefault(t => t.FullName == "MuMech.EditableDouble");
-                PropertyInfo mjEditableDoubleVal = mjEditableDouble_t.GetProperty("Val", BindingFlags.Instance | BindingFlags.Public); // MJ 2.15+ PascalCase
+                PropertyInfo mjEditableDoubleVal = mjEditableDouble_t.GetProperty("Val", BindingFlags.Instance | BindingFlags.Public); // Was "val", now PascalCase
                 MethodInfo mjGetEditableDouble = null, mjSetEditableDouble = null;
                 if (mjEditableDoubleVal != null)
                 {
@@ -784,7 +786,8 @@ namespace JSI
                     throw new NotImplementedException("mjRequestUpdate");
                 }
                 requestUpdate = DynamicMethodDelegateFactory.Create(mjRequestUpdate);
-                // VacStats/AtmoStats - In MJ 2.15+, these are List<FuelStats> with PascalCase names
+                // VacStats/AtmoStats - In new MJ2, these are List<FuelStats> with PascalCase names
+                // In old MJ2, they were FuelStats[] with lowercase names
                 mjVacStageStats = mjModuleStageStats_t.GetField("VacStats", BindingFlags.Instance | BindingFlags.Public);
                 if (mjVacStageStats == null)
                 {
@@ -800,7 +803,7 @@ namespace JSI
                 // its internal FuelFlowSimulation.  This sim uses an array of
                 // structs, which entails a couple of extra hoops to jump through
                 // when reading via reflection.
-                // MJ 2.15+ uses List<FuelStats> instead of FuelStats[]
+                // New MJ2 2.15+ uses List<FuelStats> instead of FuelStats[]
                 mjAtmStageStats = mjModuleStageStats_t.GetField("AtmoStats", BindingFlags.Instance | BindingFlags.Public);
                 if (mjAtmStageStats == null)
                 {
@@ -861,7 +864,7 @@ namespace JSI
                 // Computer Module
                 Type mjComputerModule_t = loadedMechJebAssy.assembly.GetExportedTypes()
                     .SingleOrDefault(t => t.FullName == "MuMech.ComputerModule");
-                PropertyInfo mjModuleEnabledProperty = mjComputerModule_t.GetProperty("Enabled", BindingFlags.Instance | BindingFlags.Public); // MJ 2.15+ PascalCase
+                PropertyInfo mjModuleEnabledProperty = mjComputerModule_t.GetProperty("Enabled", BindingFlags.Instance | BindingFlags.Public); // Was "enabled", now PascalCase
                 MethodInfo mjModuleEnabled = null;
                 if (mjModuleEnabledProperty != null)
                 {
@@ -872,35 +875,34 @@ namespace JSI
                     throw new NotImplementedException("mjModuleEnabled");
                 }
                 moduleEnabled = DynamicMethodDelegateFactory.CreateFuncBool(mjModuleEnabled);
-                mjModuleUsers = mjComputerModule_t.GetField("Users", BindingFlags.Instance | BindingFlags.Public); // MJ 2.15+ PascalCase
+                mjModuleUsers = mjComputerModule_t.GetField("Users", BindingFlags.Instance | BindingFlags.Public); // Was "users", now PascalCase
                 if (mjModuleUsers == null)
                 {
                     throw new NotImplementedException("mjModuleUsers");
                 }
-
-                IJSIModule.RegisterModule(typeof(JSIMechJeb));
             }
             catch (Exception e)
             {
                 mjMechJebCore_t = null;
-                JUtil.LogErrorMessage(null, "Exception initializing JSIMechJeb: {0}", e);
+                UnityEngine.Debug.LogError("[JSIMechJeb] Exception initializing JSIMechJeb: " + e);
             }
 
             if (mjMechJebCore_t != null && getMasterMechJeb != null)
             {
                 mjFound = true;
+                UnityEngine.Debug.Log("[JSIMechJeb] MechJeb found and initialized successfully");
             }
             else
             {
                 mjFound = false;
+                UnityEngine.Debug.Log("[JSIMechJeb] MechJeb NOT found. mjMechJebCore_t=" + (mjMechJebCore_t != null) + ", getMasterMechJeb=" + (getMasterMechJeb != null));
             }
         }
 
-        static public bool IsInstalled => mjFound;
-
-        public JSIMechJeb(Vessel myVessel) : base(myVessel)
+        public JSIMechJeb(Vessel myVessel)
         {
-            JUtil.LogInfo(this, "A supported version of MechJeb is {0}", (mjFound) ? "present" : "not available");
+            vessel = myVessel;
+            JUtil.LogMessage(this, "A supported version of MechJeb is {0}", (mjFound) ? "present" : "not available");
         }
 
         #region Internal Methods
@@ -1490,7 +1492,7 @@ namespace JSI
             if (GetMechJebAvailable() && altitude >= vessel.orbit.PeA && altitude <= vessel.orbit.ApA)
             {
                 // Add validation
-                double UT = vessel.orbit.GetNextTimeOfRadius(Planetarium.GetUniversalTime(), vessel.orbit.referenceBody.Radius + altitude);
+                double UT = vessel.orbit.NextTimeOfRadius(Planetarium.GetUniversalTime(), vessel.orbit.referenceBody.Radius + altitude);
 
                 Vector3d dV;
 
@@ -1506,7 +1508,7 @@ namespace JSI
         {
             if (GetMechJebAvailable() && altitude >= vessel.orbit.PeA)
             {
-                double UT = vessel.orbit.GetNextPeriapsisTime(Planetarium.GetUniversalTime());
+                double UT = vessel.orbit.NextPeriapsisTime(Planetarium.GetUniversalTime());
 
                 Vector3d dV;
 
@@ -1522,7 +1524,7 @@ namespace JSI
         {
             if (GetMechJebAvailable() && altitude <= vessel.orbit.ApA)
             {
-                double UT = vessel.orbit.GetNextApoapsisTime(Planetarium.GetUniversalTime());
+                double UT = vessel.orbit.NextApoapsisTime(Planetarium.GetUniversalTime());
 
                 Vector3d dV;
 
@@ -1699,7 +1701,7 @@ namespace JSI
         public void ButtonAscentGuidance(bool state)
         {
             object activeJeb = GetMasterMechJeb(vessel);
-
+            
             // Try MechJebModuleAscentBaseAutopilot first (newer MJ)
             object ap = GetComputerModule(activeJeb, "MechJebModuleAscentBaseAutopilot");
             if (ap == null)
@@ -1910,7 +1912,7 @@ namespace JSI
                     return false;
                 }
 
-                if (o.RelativeInclination_DEG(targetOrbit) > 30.0 && o.RelativeInclination_DEG(targetOrbit) < 150.0)
+                if (o.RelativeInclination(targetOrbit) > 30.0 && o.RelativeInclination(targetOrbit) < 150.0)
                 {
                     // Target is in a drastically different orbital plane.
                     return false;
@@ -1928,7 +1930,7 @@ namespace JSI
                 {
                     return false;
                 }
-                if (o.referenceBody.orbit.RelativeInclination_DEG(targetOrbit) > 30.0)
+                if (o.referenceBody.orbit.RelativeInclination(targetOrbit) > 30.0)
                 {
                     // Can't handle highly inclined targets
                     return false;

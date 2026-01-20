@@ -27,49 +27,6 @@ using UnityEngine;
 
 namespace JSI
 {
-    // deal with the annoying fact that RadialIn and RadialOut are actually swapped in the KSP API
-    // all calls to get or set SAS mode should go through these functions!!
-    // https://bugs.kerbalspaceprogram.com/issues/13199
-    internal static class VesselAutopilotExtensions
-    {
-        public static VesselAutopilot.AutopilotMode GetActualMode(this VesselAutopilot autopilot)
-        {
-            return ConvertMode(autopilot.Mode);
-        }
-
-        public static bool SetActualMode(this VesselAutopilot autopilot, VesselAutopilot.AutopilotMode mode)
-        {
-            mode = ConvertMode(mode);
-
-            if (autopilot.CanSetMode(mode))
-            {
-                var result = autopilot.SetMode(mode);
-
-                var autopilotUI = GameObject.FindObjectOfType<VesselAutopilotUI>();
-                if (autopilotUI != null && mode >= 0 && (int)mode < autopilotUI.modeButtons.Length)
-                {
-                    autopilotUI.modeButtons[(int)mode].SetState(true);
-                }
-
-                return result;
-            }
-
-            return false;
-        }
-
-        public static bool CanSetActualMode(this VesselAutopilot autopilot, VesselAutopilot.AutopilotMode mode)
-        {
-            return autopilot.CanSetMode(ConvertMode(mode));
-        }
-
-        private static VesselAutopilot.AutopilotMode ConvertMode(VesselAutopilot.AutopilotMode mode)
-        {
-            if (mode == VesselAutopilot.AutopilotMode.RadialIn) mode = VesselAutopilot.AutopilotMode.RadialOut;
-            else if (mode == VesselAutopilot.AutopilotMode.RadialOut) mode = VesselAutopilot.AutopilotMode.RadialIn;
-            return mode;
-        }
-    }
-
     class JSISASMenu : InternalModule
     {
         [KSPField]
@@ -167,7 +124,11 @@ namespace JSI
 
         private void SAS_Mode(int arg1, TextMenu.Item arg2)
         {
-            vessel.Autopilot.SetActualMode(modes[arg1]);
+            vessel.Autopilot.SetMode(modes[arg1]);
+            // find the UI object on screen
+            UIStateToggleButton[] SASbtns = UnityEngine.Object.FindObjectOfType<VesselAutopilotUI>().modeButtons;
+            // set our mode, note it takes the mode as an int, generally top to bottom, left to right, as seen on the screen. Maneuver node being the exception, it is 9
+            SASbtns.ElementAt<UIStateToggleButton>((int)modes[arg1]).SetState(true);
         }
 
         private void SAS_Toggle(int arg1, TextMenu.Item arg2)
@@ -189,10 +150,10 @@ namespace JSI
 
             for (int i = 1; i < topMenu.Count; ++i)
             {
-                if (vessel.Autopilot.CanSetActualMode(modes[i]))
+                if (vessel.Autopilot.CanSetMode(modes[i]))
                 {
                     topMenu[i].isDisabled = false;
-                    topMenu[i].isSelected = (vessel.Autopilot.GetActualMode() == modes[i]);
+                    topMenu[i].isSelected = (vessel.Autopilot.Mode == modes[i]);
                     if (topMenu[i].isSelected)
                     {
                         activeMode = i;

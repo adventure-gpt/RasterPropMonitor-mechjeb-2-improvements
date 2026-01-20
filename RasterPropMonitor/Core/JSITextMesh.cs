@@ -34,7 +34,7 @@ namespace JSI
     /// </summary>
     public class JSITextMesh : MonoBehaviour
     {
-        [SerializeField] private TextAlignment alignment_;
+        private TextAlignment alignment_;
         public TextAlignment alignment
         {
             get
@@ -47,12 +47,11 @@ namespace JSI
                 {
                     invalidated = true;
                     alignment_ = value;
-                    enabled = true;
                 }
             }
         }
 
-        [SerializeField] private TextAnchor anchor_;
+        private TextAnchor anchor_;
         public TextAnchor anchor
         {
             get
@@ -65,12 +64,11 @@ namespace JSI
                 {
                     invalidated = true;
                     anchor_ = value;
-                    enabled = true;
                 }
             }
         }
 
-        [SerializeField] private float characterSize_ = 1.0f;
+        private float characterSize_ = 1.0f;
         public float characterSize
         {
             get
@@ -83,12 +81,11 @@ namespace JSI
                 {
                     invalidated = true;
                     characterSize_ = value;
-                    enabled = true;
                 }
             }
         }
 
-        [SerializeField] private Color32 color_;
+        private Color32 color_;
         public Color32 color
         {
             get
@@ -101,12 +98,11 @@ namespace JSI
                 {
                     invalidatedColor = true;
                     color_ = value;
-                    enabled = true;
                 }
             }
         }
 
-        [SerializeReference] private Font font_;
+        private Font font_;
         public Font font
         {
             get
@@ -119,12 +115,16 @@ namespace JSI
                 {
                     invalidated = true;
                     font_ = value;
-                    enabled = true;
+                    if (font_ != null)
+                    {
+                        CreateComponents();
+                        meshRenderer_.material.mainTexture = font_.material.mainTexture;
+                    }
                 }
             }
         }
 
-        [SerializeField] private int fontSize_ = 32;
+        private int fontSize_ = 32;
         public int fontSize
         {
             get
@@ -136,13 +136,12 @@ namespace JSI
                 if (value != fontSize_)
                 {
                     invalidated = true;
-                    enabled = true;
                     fontSize_ = value;
                 }
             }
         }
 
-        [SerializeField] private FontStyle fontStyle_;
+        private FontStyle fontStyle_;
         public FontStyle fontStyle
         {
             get
@@ -154,13 +153,12 @@ namespace JSI
                 if (value != fontStyle_)
                 {
                     invalidated = true;
-                    enabled = true;
                     fontStyle_ = value;
                 }
             }
         }
 
-        [SerializeField] private float lineSpacing_ = 1.0f;
+        private float lineSpacing_ = 1.0f;
         public float lineSpacing
         {
             get
@@ -172,35 +170,33 @@ namespace JSI
                 if (value != lineSpacing_)
                 {
                     invalidated = true;
-                    enabled = true;
                     lineSpacing_ = value;
                 }
             }
         }
 
-        [SerializeField] private MeshRenderer meshRenderer_;
-        [SerializeField] private MeshFilter meshFilter_;
+        private MeshRenderer meshRenderer_;
+        private MeshFilter meshFilter_;
         public Material material
         {
             get
             {
+                CreateComponents();
                 return meshRenderer_.material;
             }
         }
-
-        private Mesh mesh_;
 
         public Mesh mesh
         {
             get
             {
-                return mesh_;
+                CreateComponents();
+                return meshFilter_.mesh;
             }
         }
 
-        [SerializeField] private string text_;
+        private string text_;
         private bool richText = false;
-        private bool hasColorTags = false;
         public string text
         {
             get
@@ -212,7 +208,6 @@ namespace JSI
                 if (value != text_)
                 {
                     invalidated = true;
-                    enabled = true;
                     text_ = value;
 
                     if (meshRenderer_ != null)
@@ -234,17 +229,12 @@ namespace JSI
         private bool invalidatedColor = false;
         private bool fontNag = false;
 
-        List<Vector3> vertices = new List<Vector3>();
-        List<Color32> colors32 = new List<Color32>();
-        List<Vector4> tangents = new List<Vector4>();
-        List<Vector2> uv = new List<Vector2>();
-        List<int> triangles = new List<int>();
-
-        
-        void Awake()
+        /// <summary>
+        /// Set up rendering components.
+        /// </summary>
+        private void CreateComponents()
         {
-            // this function will get called both when compiling the prop itself and when instantiating it in an internal model
-            if (HighLogic.LoadedScene == GameScenes.LOADING && meshFilter_ == null)
+            if (meshRenderer_ == null)
             {
                 meshFilter_ = gameObject.AddComponent<MeshFilter>();
                 meshRenderer_ = gameObject.AddComponent<MeshRenderer>();
@@ -254,37 +244,29 @@ namespace JSI
             }
         }
 
-        void Start()
+        /// <summary>
+        /// Set up the JSITextMesh components if they haven't been set up yet.
+        /// </summary>
+        public void Start()
         {
             Font.textureRebuilt += FontRebuiltCallback;
-
-            mesh_ = new Mesh();
-            meshFilter_.sharedMesh = mesh_;
-
-            invalidated = true;
-        }
-
-        void OnBecameVisible()
-        {
-            if (!string.IsNullOrEmpty(text) && (invalidated || invalidatedColor))
-            {
-                enabled = true;
-            }
-        }
-
-        void OnBecameInvisible()
-        {
-            enabled = false;
+            CreateComponents();
         }
 
         /// <summary>
         /// Make sure we don't leave our callback lingering.
         /// </summary>
-        void OnDestroy()
+        public void OnDestroy()
         {
             Font.textureRebuilt -= FontRebuiltCallback;
 
-            Destroy(mesh_);
+            Destroy(meshFilter_);
+            meshFilter_ = null;
+
+            Destroy(meshRenderer_.material);
+
+            Destroy(meshRenderer_);
+            meshRenderer_ = null;
         }
 
         /// <summary>
@@ -298,16 +280,13 @@ namespace JSI
             {
                 invalidated = true;
                 meshRenderer_.material.mainTexture = font_.material.mainTexture;
-                enabled = true;
             }
         }
 
-        public void Invalidate()
-        {
-            invalidated = true;
-        }
-
-        public void Build()
+        /// <summary>
+        /// Update the text mesh if it's changed.
+        /// </summary>
+        public void Update()
         {
             if (!string.IsNullOrEmpty(text_))
             {
@@ -324,7 +303,7 @@ namespace JSI
                         return;
                     }
 
-                    if (text_.IndexOf('[') != -1)
+                    if (text_.Contains("["))
                     {
                         richText = true;
                         GenerateRichText();
@@ -340,41 +319,27 @@ namespace JSI
                 }
                 else if (invalidatedColor)
                 {
-                    if (richText && hasColorTags)
+                    if (richText)
                     {
                         GenerateRichText();
                     }
                     else
                     {
-                        if (mesh_.colors32.Length > 0)
+                        if (meshFilter_.mesh.colors32.Length > 0)
                         {
-                            for (int idx = 0; idx < colors32.Count; ++idx)
+                            Color32[] newColor = new Color32[meshFilter_.mesh.colors32.Length];
+                            for (int idx = 0; idx < newColor.Length; ++idx)
                             {
-                                colors32[idx] = color_;
+                                newColor[idx] = color_;
                             }
-                            mesh_.SetColors(colors32);
-                            mesh_.UploadMeshData(false);
+                            meshFilter_.mesh.colors32 = newColor;
+                            meshFilter_.mesh.UploadMeshData(false);
                         }
                     }
 
                     invalidatedColor = false;
                 }
             }
-
-            enabled = false;
-        }
-
-        /// <summary>
-        /// Update the text mesh if it's changed.
-        /// </summary>
-        void Update()
-        {
-            if (invalidated && font != null && meshRenderer_ != null)
-            {
-                meshRenderer_.material.mainTexture = font_.material.mainTexture;
-            }
-
-            Build();
         }
 
         /// <summary>
@@ -382,8 +347,6 @@ namespace JSI
         /// </summary>
         private void GenerateRichText()
         {
-            hasColorTags = false;
-
             // Break the text into lines
             string[] textLines = text_.Split(JUtil.LineSeparator, StringSplitOptions.None);
 
@@ -396,86 +359,57 @@ namespace JSI
             int[] textLength = new int[textLines.Length];
             int maxTextLength = 0;
             int maxVerts = 0;
-
-            // TODO: this loop is just to *measure* the text - it might be better to parse and measure it in one loop?
             for (int line = 0; line < textLines.Length; ++line)
             {
                 textLength[line] = 0;
-                string textToRender = textLines[line];
 
-                for (int charIndex = 0; charIndex < textToRender.Length; charIndex++)
+                for (int charIndex = 0; charIndex < textLines[line].Length; charIndex++)
                 {
                     bool escapedBracket = false;
                     // We will continue parsing bracket pairs until we're out of bracket pairs,
                     // since all of them -- except the escaped bracket tag --
                     // consume characters and change state without actually generating any output.
-                    while (charIndex < textToRender.Length && textToRender[charIndex] == '[')
+                    while (charIndex < textLines[line].Length && textLines[line][charIndex] == '[')
                     {
-                        ++charIndex;
-                        if (charIndex >= textToRender.Length) break;
-
                         // If there's no closing bracket, we stop parsing and go on to printing.
-                        int tagLength = textToRender.IndexOf(']', charIndex) - charIndex;
-                        if (tagLength <= 0)
+                        int nextBracket = textLines[line].IndexOf(']', charIndex) - charIndex;
+                        if (nextBracket < 1)
+                            break;
+                        // Much easier to parse it this way, although I suppose more expensive.
+                        string tagText = textLines[line].Substring(charIndex + 1, nextBracket - 1).Trim();
+                        if ((tagText.Length == 9 || tagText.Length == 7) && tagText[0] == '#')
                         {
+                            charIndex += nextBracket + 1;
+                        }
+                        else if (tagText == "[")
+                        {
+                            // We got a "[[]" which means an escaped opening bracket.
+                            escapedBracket = true;
+                            charIndex += nextBracket;
                             break;
                         }
-                        else if (tagLength == 1)
+                        else if (tagText == "b")
                         {
-                            if (textToRender[charIndex] == 'b')
-                            {
-                                bold = true;
-                                charIndex += tagLength + 1;
-                            }
-                            else if (textToRender[charIndex] == 'i')
-                            {
-                                italic = true;
-                                charIndex += tagLength + 1;
-                            }
-                            else if (textToRender[charIndex] == '[')
-                            {
-                                // We got a "[[]" which means an escaped opening bracket.
-                                escapedBracket = true;
-                                charIndex += tagLength;
-                                break;
-                            }
-                            else // Else we didn't recognise anything so it's not a tag.
-                            {
-                                --charIndex; // treat this as a literal bracket
-                                break;
-                            }
+                            bold = true;
+                            charIndex += nextBracket + 1;
                         }
-                        else if (tagLength == 2)
+                        else if (tagText == "i")
                         {
-                            if (TextRenderer.CheckTag(textToRender, charIndex, "/i"))
-                            {
-                                italic = false;
-                                charIndex += tagLength + 1;
-                            }
-                            else if (TextRenderer.CheckTag(textToRender, charIndex, "/b"))
-                            {
-                                bold = false;
-                                charIndex += tagLength + 1;
-                            }
-                            else // Else we didn't recognise anything so it's not a tag.
-                            {
-                                --charIndex; // treat this as a literal bracket
-                                break;
-                            }
+                            italic = true;
+                            charIndex += nextBracket + 1;
                         }
-                        else if (tagLength == 7 && textToRender[charIndex] == '#')
+                        else if (tagText == "/b")
                         {
-                            hasColorTags = true;
-                            charIndex += tagLength + 1;
+                            bold = false;
+                            charIndex += nextBracket + 1;
                         }
-                        else if (tagLength == 9 && textToRender[charIndex] == '#')
+                        else if (tagText == "/i")
                         {
-                            hasColorTags = true;
-                            charIndex += tagLength + 1;
+                            italic = false;
+                            charIndex += nextBracket + 1;
                         }
                         else // Else we didn't recognise anything so it's not a tag.
                         {
-                            --charIndex; // treat this as a literal bracket
                             break;
                         }
                     }
@@ -483,9 +417,9 @@ namespace JSI
                     if (charIndex < textLines[line].Length)
                     {
                         FontStyle style = GetFontStyle(bold, italic);
-                        font_.RequestCharactersInTexture(escapedBracket ? "[" : textToRender[charIndex].ToString(), fontSize_, style);
+                        font_.RequestCharactersInTexture(escapedBracket ? "[" : textLines[line][charIndex].ToString(), fontSize_, style);
                         CharacterInfo charInfo;
-                        if (font_.GetCharacterInfo(textToRender[charIndex], out charInfo, fontSize_, style))
+                        if (font_.GetCharacterInfo(textLines[line][charIndex], out charInfo, 0, style))
                         {
                             textLength[line] += charInfo.advance;
                             maxVerts += 4;
@@ -501,14 +435,25 @@ namespace JSI
 
             if (maxVerts == 0)
             {
-                gameObject.SetActive(false);
+                meshRenderer_.gameObject.SetActive(false);
                 return;
             }
 
-            gameObject.SetActive(true);
+            meshRenderer_.gameObject.SetActive(true);
 
-            PrepBuffers(maxVerts);
+            Vector3[] vertices = new Vector3[maxVerts];
+            Color32[] colors32 = new Color32[maxVerts];
+            Vector4[] tangents = new Vector4[maxVerts];
+            Vector2[] uv = new Vector2[maxVerts];
 
+            int[] triangles = new int[maxVerts + maxVerts / 2];
+            for (int idx = 0; idx < triangles.Length; ++idx)
+            {
+                triangles.SetValue(0, idx);
+            }
+
+            int charWritten = 0;
+            int arrayIndex = 0;
             int yPos = 0;
             int xAnchor = 0;
             switch (anchor_)
@@ -560,81 +505,56 @@ namespace JSI
                 xPos += xAnchor;
 
                 Color32 fontColor = color_;
-                string textToRender = textLines[line];
 
-                for (int charIndex = 0; charIndex < textToRender.Length; charIndex++)
+                for (int charIndex = 0; charIndex < textLines[line].Length; charIndex++)
                 {
                     bool escapedBracket = false;
                     // We will continue parsing bracket pairs until we're out of bracket pairs,
                     // since all of them -- except the escaped bracket tag --
                     // consume characters and change state without actually generating any output.
-                    while (charIndex < textToRender.Length && textToRender[charIndex] == '[')
+                    while (charIndex < textLines[line].Length && textLines[line][charIndex] == '[')
                     {
-                        ++charIndex;
-                        if (charIndex >= textToRender.Length) break;
-
                         // If there's no closing bracket, we stop parsing and go on to printing.
-                        int tagLength = textToRender.IndexOf(']', charIndex) - charIndex;
-                        if (tagLength <= 0)
+                        int nextBracket = textLines[line].IndexOf(']', charIndex) - charIndex;
+                        if (nextBracket < 1)
+                            break;
+                        // Much easier to parse it this way, although I suppose more expensive.
+                        string tagText = textLines[line].Substring(charIndex + 1, nextBracket - 1).Trim();
+                        if ((tagText.Length == 9 || tagText.Length == 7) && tagText[0] == '#')
                         {
+                            // Valid color tags are [#rrggbbaa] or [#rrggbb].
+                            fontColor = XKCDColors.ColorTranslator.FromHtml(tagText);
+                            charIndex += nextBracket + 1;
+                        }
+                        else if (tagText == "[")
+                        {
+                            // We got a "[[]" which means an escaped opening bracket.
+                            escapedBracket = true;
+                            charIndex += nextBracket;
                             break;
                         }
-                        else if (tagLength == 1)
+                        else if (tagText == "b")
                         {
-                            if (textToRender[charIndex] == 'b')
-                            {
-                                bold = true;
-                                charIndex += tagLength + 1;
-                            }
-                            else if (textToRender[charIndex] == 'i')
-                            {
-                                italic = true;
-                                charIndex += tagLength + 1;
-                            }
-                            else if (textToRender[charIndex] == '[')
-                            {
-                                // We got a "[[]" which means an escaped opening bracket.
-                                escapedBracket = true;
-                                charIndex += tagLength;
-                                break;
-                            }
-                            else // Else we didn't recognise anything so it's not a tag.
-                            {
-                                --charIndex; // treat this as a literal bracket
-                                break;
-                            }
+                            bold = true;
+                            charIndex += nextBracket + 1;
                         }
-                        else if (tagLength == 2)
+                        else if (tagText == "i")
                         {
-                            if (TextRenderer.CheckTag(textToRender, charIndex, "/i"))
-                            {
-                                italic = false;
-                                charIndex += tagLength + 1;
-                            }
-                            else if (TextRenderer.CheckTag(textToRender, charIndex, "/b"))
-                            {
-                                bold = false;
-                                charIndex += tagLength + 1;
-                            }
-                            else // Else we didn't recognise anything so it's not a tag.
-                            {
-                                --charIndex; // treat this as a literal bracket
-                                break;
-                            }
+                            italic = true;
+                            charIndex += nextBracket + 1;
                         }
-                        else if (tagLength == 7 && textToRender[charIndex] == '#')
+                        else if (tagText == "/b")
                         {
-                            fontColor = TextRenderer.ParseHexColorRGB(textToRender, charIndex + 1);
-                            charIndex += tagLength + 1;
+                            bold = false;
+                            charIndex += nextBracket + 1;
                         }
-                        else if (tagLength == 9 && textToRender[charIndex] == '#')
+                        else if (tagText == "/i")
                         {
-                            fontColor = TextRenderer.ParseHexColorRGBA(textToRender, charIndex + 1);
-                            charIndex += tagLength + 1;
+                            italic = false;
+                            charIndex += nextBracket + 1;
                         }
                         else // Else we didn't recognise anything so it's not a tag.
                         {
-                            --charIndex; // treat this as a literal bracket
                             break;
                         }
                     }
@@ -647,21 +567,41 @@ namespace JSI
                         {
                             if (charInfo.minX != charInfo.maxX && charInfo.minY != charInfo.maxY)
                             {
-                                vertices.Add(new Vector3(characterSize_ * (float)(xPos + charInfo.minX), characterSize_ * (float)(yPos + charInfo.maxY), 0.0f));
-                                colors32.Add(fontColor);
-                                uv.Add(charInfo.uvTopLeft);
+                                triangles[charWritten * 6 + 0] = arrayIndex + 0;
+                                triangles[charWritten * 6 + 1] = arrayIndex + 3;
+                                triangles[charWritten * 6 + 2] = arrayIndex + 2;
+                                triangles[charWritten * 6 + 3] = arrayIndex + 0;
+                                triangles[charWritten * 6 + 4] = arrayIndex + 1;
+                                triangles[charWritten * 6 + 5] = arrayIndex + 3;
 
-                                vertices.Add(new Vector3(characterSize_ * (float)(xPos + charInfo.maxX), characterSize_ * (float)(yPos + charInfo.maxY), 0.0f));
-                                colors32.Add(fontColor);
-                                uv.Add(charInfo.uvTopRight);
+                                vertices[arrayIndex] = new Vector3(characterSize_ * (float)(xPos + charInfo.minX), characterSize_ * (float)(yPos + charInfo.maxY), 0.0f);
+                                colors32[arrayIndex] = fontColor;
+                                tangents[arrayIndex] = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+                                uv[arrayIndex] = charInfo.uvTopLeft;
 
-                                vertices.Add(new Vector3(characterSize_ * (float)(xPos + charInfo.minX), characterSize_ * (float)(yPos + charInfo.minY), 0.0f));
-                                colors32.Add(fontColor);
-                                uv.Add(charInfo.uvBottomLeft);
+                                ++arrayIndex;
 
-                                vertices.Add(new Vector3(characterSize_ * (float)(xPos + charInfo.maxX), characterSize_ * (float)(yPos + charInfo.minY), 0.0f));
-                                colors32.Add(fontColor);
-                                uv.Add(charInfo.uvBottomRight);
+                                vertices[arrayIndex] = new Vector3(characterSize_ * (float)(xPos + charInfo.maxX), characterSize_ * (float)(yPos + charInfo.maxY), 0.0f);
+                                colors32[arrayIndex] = fontColor;
+                                tangents[arrayIndex] = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+                                uv[arrayIndex] = charInfo.uvTopRight;
+
+                                ++arrayIndex;
+
+                                vertices[arrayIndex] = new Vector3(characterSize_ * (float)(xPos + charInfo.minX), characterSize_ * (float)(yPos + charInfo.minY), 0.0f);
+                                colors32[arrayIndex] = fontColor;
+                                tangents[arrayIndex] = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+                                uv[arrayIndex] = charInfo.uvBottomLeft;
+
+                                ++arrayIndex;
+
+                                vertices[arrayIndex] = new Vector3(characterSize_ * (float)(xPos + charInfo.maxX), characterSize_ * (float)(yPos + charInfo.minY), 0.0f);
+                                colors32[arrayIndex] = fontColor;
+                                tangents[arrayIndex] = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+                                uv[arrayIndex] = charInfo.uvBottomRight;
+
+                                ++arrayIndex;
+                                ++charWritten;
                             }
                             xPos += charInfo.advance;
                         }
@@ -671,58 +611,15 @@ namespace JSI
                 yPos -= lineAdvance;
             }
 
-            PopulateMesh();
-        }
-
-        void PopulateMesh()
-        {
-            if (mesh_ == null)
-            {
-                mesh_ = new Mesh();
-            }
-
-            mesh_.Clear();
-            mesh_.SetVertices(vertices, 0, vertices.Count);
-            mesh_.SetColors(colors32, 0, colors32.Count);
-            mesh_.SetTangents(tangents, 0, vertices.Count); // note, tangents list might be longer than the vertex array
-            mesh_.SetUVs(0, uv, 0, uv.Count);
-            mesh_.SetTriangles(triangles, 0, vertices.Count / 4 * 6, 0);
-            mesh_.RecalculateNormals();
+            meshFilter_.mesh.Clear();
+            meshFilter_.mesh.vertices = vertices;
+            meshFilter_.mesh.colors32 = colors32;
+            meshFilter_.mesh.tangents = tangents;
+            meshFilter_.mesh.uv = uv;
+            meshFilter_.mesh.triangles = triangles;
+            meshFilter_.mesh.RecalculateNormals();
             // Can't hide mesh with (true), or we can't edit colors later.
-            mesh_.UploadMeshData(false);
-        }
-
-        private void PrepBuffers(int maxVerts)
-        {
-            vertices.Clear();
-            colors32.Clear();
-            uv.Clear();
-
-            vertices.Capacity = Math.Max(vertices.Capacity, maxVerts);
-            colors32.Capacity = Math.Max(colors32.Capacity, maxVerts);
-            tangents.Capacity = Math.Max(tangents.Capacity, maxVerts);
-            uv.Capacity = Math.Max(uv.Capacity, maxVerts);
-
-            // these never change, so we populate it once and leave it
-            for (int tangentCount = tangents.Count; tangentCount < maxVerts; ++tangentCount)
-            {
-                tangents.Add(new Vector4(1.0f, 0.0f, 0.0f, 1.0f));
-            }
-
-            // "triangles" is really "indices" and there are 6 per character
-            int oldNumQuads = triangles.Count / 6;
-            int newNumQuads = maxVerts / 4;
-            triangles.Capacity = Math.Max(triangles.Capacity, newNumQuads / 4 * 6);
-            for (int quadIndex = oldNumQuads; quadIndex < newNumQuads; ++quadIndex)
-            {
-                int baseVertexIndex = quadIndex * 4;
-                triangles.Add(baseVertexIndex + 0);
-                triangles.Add(baseVertexIndex + 3);
-                triangles.Add(baseVertexIndex + 2);
-                triangles.Add(baseVertexIndex + 0);
-                triangles.Add(baseVertexIndex + 1);
-                triangles.Add(baseVertexIndex + 3);
-            }
+            meshFilter_.mesh.UploadMeshData(false);
         }
 
         /// <summary>
@@ -760,14 +657,25 @@ namespace JSI
 
             if (maxVerts == 0)
             {
-                gameObject.SetActive(false);
+                meshRenderer_.gameObject.SetActive(false);
                 return;
             }
 
-            gameObject.SetActive(true);
+            meshRenderer_.gameObject.SetActive(true);
 
-            PrepBuffers(maxVerts);
+            Vector3[] vertices = new Vector3[maxVerts];
+            Color32[] colors32 = new Color32[maxVerts];
+            Vector4[] tangents = new Vector4[maxVerts];
+            Vector2[] uv = new Vector2[maxVerts];
 
+            int[] triangles = new int[maxVerts + maxVerts / 2];
+            for (int idx = 0; idx < triangles.Length; ++idx)
+            {
+                triangles.SetValue(0, idx);
+            }
+
+            int charWritten = 0;
+            int arrayIndex = 0;
             int yPos = 0;
             int xAnchor = 0;
             switch (anchor_)
@@ -823,30 +731,58 @@ namespace JSI
                     CharacterInfo charInfo;
                     if (font_.GetCharacterInfo(textLines[line][ch], out charInfo))
                     {
-                        vertices.Add(new Vector3(characterSize_ * (float)(xPos + charInfo.minX), characterSize_ * (float)(yPos + charInfo.maxY), 0.0f));
-                        colors32.Add(color_);
-                        uv.Add(charInfo.uvTopLeft);
+                        triangles[charWritten * 6 + 0] = arrayIndex + 0;
+                        triangles[charWritten * 6 + 1] = arrayIndex + 3;
+                        triangles[charWritten * 6 + 2] = arrayIndex + 2;
+                        triangles[charWritten * 6 + 3] = arrayIndex + 0;
+                        triangles[charWritten * 6 + 4] = arrayIndex + 1;
+                        triangles[charWritten * 6 + 5] = arrayIndex + 3;
 
-                        vertices.Add(new Vector3(characterSize_ * (float)(xPos + charInfo.maxX), characterSize_ * (float)(yPos + charInfo.maxY), 0.0f));
-                        colors32.Add(color_);
-                        uv.Add(charInfo.uvTopRight);
+                        vertices[arrayIndex] = new Vector3(characterSize_ * (float)(xPos + charInfo.minX), characterSize_ * (float)(yPos + charInfo.maxY), 0.0f);
+                        colors32[arrayIndex] = color_;
+                        tangents[arrayIndex] = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+                        uv[arrayIndex] = charInfo.uvTopLeft;
 
-                        vertices.Add(new Vector3(characterSize_ * (float)(xPos + charInfo.minX), characterSize_ * (float)(yPos + charInfo.minY), 0.0f));
-                        colors32.Add(color_);
-                        uv.Add(charInfo.uvBottomLeft);
+                        ++arrayIndex;
 
-                        vertices.Add(new Vector3(characterSize_ * (float)(xPos + charInfo.maxX), characterSize_ * (float)(yPos + charInfo.minY), 0.0f));
-                        colors32.Add(color_);
-                        uv.Add(charInfo.uvBottomRight);
+                        vertices[arrayIndex] = new Vector3(characterSize_ * (float)(xPos + charInfo.maxX), characterSize_ * (float)(yPos + charInfo.maxY), 0.0f);
+                        colors32[arrayIndex] = color_;
+                        tangents[arrayIndex] = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+                        uv[arrayIndex] = charInfo.uvTopRight;
+
+                        ++arrayIndex;
+
+                        vertices[arrayIndex] = new Vector3(characterSize_ * (float)(xPos + charInfo.minX), characterSize_ * (float)(yPos + charInfo.minY), 0.0f);
+                        colors32[arrayIndex] = color_;
+                        tangents[arrayIndex] = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+                        uv[arrayIndex] = charInfo.uvBottomLeft;
+
+                        ++arrayIndex;
+
+                        vertices[arrayIndex] = new Vector3(characterSize_ * (float)(xPos + charInfo.maxX), characterSize_ * (float)(yPos + charInfo.minY), 0.0f);
+                        colors32[arrayIndex] = color_;
+                        tangents[arrayIndex] = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+                        uv[arrayIndex] = charInfo.uvBottomRight;
+
+                        ++arrayIndex;
 
                         xPos += charInfo.advance;
+                        ++charWritten;
                     }
                 }
 
                 yPos -= lineAdvance;
             }
 
-            PopulateMesh();
+            meshFilter_.mesh.Clear();
+            meshFilter_.mesh.vertices = vertices;
+            meshFilter_.mesh.colors32 = colors32;
+            meshFilter_.mesh.tangents = tangents;
+            meshFilter_.mesh.uv = uv;
+            meshFilter_.mesh.triangles = triangles;
+            meshFilter_.mesh.RecalculateNormals();
+            // Can't hide mesh with (true), or we can't edit colors later.
+            meshFilter_.mesh.UploadMeshData(false);
         }
 
         /// <summary>

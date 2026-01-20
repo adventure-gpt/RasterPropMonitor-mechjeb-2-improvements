@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -30,37 +30,17 @@ namespace JSI
     /// thresholded behavior (switching on/off, not interpolating between two
     /// states).
     /// </summary>
-    public class JSICallbackAnimator : InternalModule, IPropBatchModuleHandler
+    public class JSICallbackAnimator : InternalModule
     {
         [KSPField]
         public string variableName = string.Empty;
         [KSPField]
         public float flashRate = 0.0f;
 
-        [SerializeField]
-        private List<CallbackAnimationSet> variableSets = new List<CallbackAnimationSet>();
+        private readonly List<CallbackAnimationSet> variableSets = new List<CallbackAnimationSet>();
+        private Action<float> del;
         private RasterPropMonitorComputer rpmComp;
         private JSIFlashModule fm;
-
-        public override void OnLoad(ConfigNode node)
-        {
-            ConfigNode[] variableNodes = node.GetNodes("VARIABLESET");
-
-            for (int i = 0; i < variableNodes.Length; i++)
-            {
-                var variableSet = gameObject.AddComponent<CallbackAnimationSet>();
-                try
-                {
-                    variableSet.Load(variableNodes[i], internalProp);
-                    variableSets.Add(variableSet);
-                }
-                catch (Exception e)
-                {
-                    JUtil.LogErrorMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propName);
-                    Component.Destroy(variableSet);
-                }
-            }
-        }
 
         /// <summary>
         /// Start and initialize all the things!
@@ -74,17 +54,35 @@ namespace JSI
 
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
 
-                foreach (var variableSet in variableSets)
+                ConfigNode moduleConfig = null;
+                foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("PROP"))
                 {
-                    variableSet.OnStart(internalProp, variableName);
-                }
+                    if (node.GetValue("name") == internalProp.propName)
+                    {
+                        if (string.IsNullOrEmpty(variableName))
+                        {
+                            JUtil.LogErrorMessage(this, "Configuration failed in prop {0} ({1}), no variableName.", internalProp.propID, internalProp.propName);
+                            throw new ArgumentNullException();
+                        }
 
-                if (string.IsNullOrEmpty(variableName))
-                {
-                    JUtil.LogErrorMessage(this, "Configuration failed in prop {0} ({1}), no variableName.", internalProp.propID, internalProp.propName);
-                    throw new ArgumentNullException();
+                        moduleConfig = node.GetNodes("MODULE")[moduleID];
+                        ConfigNode[] variableNodes = moduleConfig.GetNodes("VARIABLESET");
+
+                        for (int i = 0; i < variableNodes.Length; i++)
+                        {
+                            try
+                            {
+                                variableSets.Add(new CallbackAnimationSet(variableNodes[i], variableName, internalProp));
+                            }
+                            catch (ArgumentException e)
+                            {
+                                JUtil.LogErrorMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propID);
+                            }
+                        }
+                        break;
+                    }
                 }
 
                 if (flashRate > 0.0f)
@@ -97,13 +95,12 @@ namespace JSI
                     }
                 }
 
-                rpmComp.RegisterVariableCallback(variableName, OnCallback);
-                rpmComp.RemoveInternalModule(this);
+                del = (Action<float>)Delegate.CreateDelegate(typeof(Action<float>), this, "OnCallback");
+                rpmComp.RegisterVariableCallback(variableName, del);
                 JUtil.LogMessage(this, "Configuration complete in prop {1} ({2}), supporting {0} callback animators.", variableSets.Count, internalProp.propID, internalProp.propName);
             }
-            catch (Exception ex)
+            catch
             {
-                JUtil.LogErrorMessage(this, $"{internalProp.propName} - {internalProp.propID} - {variableName} - {internalModel?.internalName} - {ex}");
                 JUtil.AnnoyUser(this);
                 enabled = false;
                 throw;
@@ -135,7 +132,7 @@ namespace JSI
 
             try
             {
-                rpmComp.UnregisterVariableCallback(variableName, OnCallback);
+                rpmComp.UnregisterVariableCallback(variableName, del);
                 if (fm != null)
                 {
                     fm.flashSubscribers -= FlashToggle;
@@ -160,29 +157,16 @@ namespace JSI
                 // Stop getting callbacks if for some reason a different
                 // computer is talking to us.
                 //JUtil.LogMessage(this, "OnCallback - unregistering del {0}, vessel null is {1}, comp.id = {2}", del.GetHashCode(), (vessel == null), comp.id);
-                rpmComp.UnregisterVariableCallback(variableName, OnCallback);
+                rpmComp.UnregisterVariableCallback(variableName, del);
                 JUtil.LogErrorMessage(this, "Received an unexpected OnCallback()");
             }
             else
             {
                 for (int i = 0; i < variableSets.Count; ++i)
                 {
-                    variableSets[i].UpdateValue(value);
+                    variableSets[i].Update(value);
                 }
             }
-        }
-
-        public bool NotifyTransformBatched(Transform transform)
-        {
-            for (int i = variableSets.Count-1 ; i >= 0; --i)
-            {
-                if (object.ReferenceEquals(transform, variableSets[i].Transform))
-                {
-                    variableSets.RemoveAt(i);
-                }
-            }
-
-            return variableSets.Count == 0 && fm == null;
         }
     }
 
@@ -192,40 +176,35 @@ namespace JSI
     /// independent range of enabling values, but it depends on the parent
     /// JSICallback class to control what variable is tracked.
     /// </summary>
-    public class CallbackAnimationSet : MonoBehaviour
+    public class CallbackAnimationSet
     {
-        [SerializeField] private string scaleRangeMin, scaleRangeMax;
-        [SerializeField] private bool reverse;
-        [SerializeField] private bool animateExterior;
-        [SerializeField] private string animationName;
-        [SerializeField] private string stopAnimationName;
-        [SerializeField] private float animationSpeed;
-        [SerializeField] private string passiveColorName, activeColorName;
-        [SerializeField] private Transform controlledTransform;
-        [SerializeField] private Vector3 initialPosition, initialScale, vectorStart, vectorEnd;
-        [SerializeField] private Quaternion initialRotation, rotationStart, rotationEnd;
-        [SerializeField] private bool longPath;
-        [SerializeField] private int colorName = -1;
-        [SerializeField] private Vector2 textureShiftStart, textureShiftEnd, textureScaleStart, textureScaleEnd;
-        [SerializeField] private Material affectedMaterial;
-        [SerializeField] private List<string> textureLayer = new List<string>();
-        [SerializeField] private Mode mode;
-        [SerializeField] private bool looping;
-        [SerializeField] private bool flash;
-        [SerializeField] private string alarmSoundName;
-        [SerializeField] private float alarmSoundVolume;
-        [SerializeField] private bool alarmMustPlayOnce;
-        [SerializeField] private bool alarmSoundLooping;
-
+        private readonly VariableOrNumberRange variable;
+        private readonly Animation onAnim;
+        private readonly Animation offAnim;
+        private readonly bool reverse;
+        private readonly string animationName;
+        private readonly string stopAnimationName;
+        private readonly float animationSpeed;
+        private readonly Color passiveColor, activeColor;
+        private Transform controlledTransform;
+        private readonly Vector3 initialPosition, initialScale, vectorStart, vectorEnd;
+        private readonly Quaternion initialRotation, rotationStart, rotationEnd;
+        private readonly bool longPath;
+        private readonly int colorName = -1;
+        private readonly Vector2 textureShiftStart, textureShiftEnd, textureScaleStart, textureScaleEnd;
+        private Material affectedMaterial;
+        private List<string> textureLayer = new List<string>();
+        private readonly Mode mode;
+        private readonly bool looping;
+        private readonly bool flash;
+        private FXGroup audioOutput;
+        private readonly float alarmSoundVolume;
+        private readonly bool alarmMustPlayOnce;
+        private readonly bool alarmSoundLooping;
         // runtime values:
         private bool alarmActive; 
         private bool currentState;
         private bool inIVA = false;
-        private VariableOrNumberRange variable;
-        private FXGroup audioOutput;
-        private Color passiveColor, activeColor;
-        private Animation onAnim;
-        private Animation offAnim;
 
         private enum Mode
         {
@@ -245,7 +224,7 @@ namespace JSI
         /// <param name="node"></param>
         /// <param name="variableName"></param>
         /// <param name="thisProp"></param>
-        public void Load(ConfigNode node, InternalProp thisProp)
+        public CallbackAnimationSet(ConfigNode node, string variableName, InternalProp thisProp)
         {
             currentState = false;
 
@@ -266,175 +245,91 @@ namespace JSI
                 throw new ArgumentException("Could not parse 'scale' parameter.");
             }
 
-            scaleRangeMin = tokens[0];
-            scaleRangeMax = tokens[1];
+            RasterPropMonitorComputer rpmComp = RasterPropMonitorComputer.Instantiate(thisProp, true);
+            variable = new VariableOrNumberRange(rpmComp, variableName, tokens[0], tokens[1]);
 
             // That takes care of the scale, now what to do about that scale:
-            node.TryGetValue(nameof(reverse), ref reverse);
-            node.TryGetValue(nameof(flash), ref flash);
-
-            alarmSoundName = node.GetValue("alarmSound");
-
-            if (alarmSoundName != null)
+            if (node.HasValue("reverse"))
             {
-                alarmSoundVolume = 0.5f;
-                node.TryGetValue(nameof(alarmSoundVolume), ref alarmSoundVolume);
-                node.TryGetValue(nameof(alarmMustPlayOnce), ref alarmMustPlayOnce);
-                string alarmShutdownButton = node.GetValue(nameof(alarmShutdownButton));
-                if (alarmShutdownButton != null)
+                if (!bool.TryParse(node.GetValue("reverse"), out reverse))
                 {
-                    SmarterButton.CreateButton(thisProp, alarmShutdownButton, AlarmShutdown);
+                    throw new ArgumentException("So is 'reverse' true or false?");
                 }
-                node.TryGetValue(nameof(alarmSoundLooping), ref alarmSoundLooping);
             }
 
-            animationName = node.GetValue(nameof(animationName));
-
-            if (animationName != null)
+            if (node.HasValue("flash"))
             {
-                node.TryGetValue(nameof(animationSpeed), ref animationSpeed);
-                node.TryGetValue(nameof(animateExterior), ref animateExterior);
-                node.TryGetValue("loopingAnimation", ref looping);
-                stopAnimationName = node.GetValue(nameof(stopAnimationName));
-            }
-            else if (node.HasValue("activeColor") && node.HasValue("passiveColor") && node.HasValue("coloredObject"))
-            {
-                string colorNameString = node.GetValue("colorName") ?? "_EmissiveColor";
-                colorName = Shader.PropertyToID(colorNameString);
-
-                passiveColorName = node.GetValue("passiveColor");
-                activeColorName = node.GetValue("activeColor");
-
-                string coloredObjectName = node.GetValue("coloredObject");
-                controlledTransform = thisProp.FindModelComponent<Renderer>(coloredObjectName)?.transform;
-                if (controlledTransform == null)
+                if(!bool.TryParse(node.GetValue("flash"), out flash))
                 {
-                    throw new ArgumentException($"Could not find transform {coloredObjectName} in prop {thisProp.propName}");
+                    throw new ArgumentException("So is 'reverse' true or false?");
                 }
-                mode = Mode.Color;
-            }
-            else if (node.HasValue("controlledTransform") && node.HasValue("localRotationStart") && node.HasValue("localRotationEnd"))
-            {
-                controlledTransform = JUtil.FindPropTransformOrThrow(thisProp, node.GetValue("controlledTransform").Trim());
-                initialRotation = controlledTransform.localRotation;
-                if (node.HasValue("longPath"))
-                {
-                    longPath = true;
-                    vectorStart = ConfigNode.ParseVector3(node.GetValue("localRotationStart"));
-                    vectorEnd = ConfigNode.ParseVector3(node.GetValue("localRotationEnd"));
-                }
-                else
-                {
-                    rotationStart = Quaternion.Euler(ConfigNode.ParseVector3(node.GetValue("localRotationStart")));
-                    rotationEnd = Quaternion.Euler(ConfigNode.ParseVector3(node.GetValue("localRotationEnd")));
-                }
-                mode = Mode.Rotation;
-            }
-            else if (node.HasValue("controlledTransform") && node.HasValue("localTranslationStart") && node.HasValue("localTranslationEnd"))
-            {
-                controlledTransform = JUtil.FindPropTransformOrThrow(thisProp, node.GetValue("controlledTransform").Trim());
-                initialPosition = controlledTransform.localPosition;
-                vectorStart = ConfigNode.ParseVector3(node.GetValue("localTranslationStart"));
-                vectorEnd = ConfigNode.ParseVector3(node.GetValue("localTranslationEnd"));
-                mode = Mode.Translation;
-            }
-            else if (node.HasValue("controlledTransform") && node.HasValue("localScaleStart") && node.HasValue("localScaleEnd"))
-            {
-                controlledTransform = JUtil.FindPropTransformOrThrow(thisProp, node.GetValue("controlledTransform").Trim());
-                initialScale = controlledTransform.localScale;
-                vectorStart = ConfigNode.ParseVector3(node.GetValue("localScaleStart"));
-                vectorEnd = ConfigNode.ParseVector3(node.GetValue("localScaleEnd"));
-                mode = Mode.Scale;
-            }
-            else if (node.HasValue("controlledTransform") && node.HasValue("textureLayers") && node.HasValue("textureShiftStart") && node.HasValue("textureShiftEnd"))
-            {
-                controlledTransform = JUtil.FindPropTransformOrThrow(thisProp, node.GetValue("controlledTransform").Trim());
-                var textureLayers = node.GetValue("textureLayers").Split(',');
-                for (int i = 0; i < textureLayers.Length; ++i)
-                {
-                    textureLayer.Add(textureLayers[i].Trim());
-                }
-
-                textureShiftStart = ConfigNode.ParseVector2(node.GetValue("textureShiftStart"));
-                textureShiftEnd = ConfigNode.ParseVector2(node.GetValue("textureShiftEnd"));
-
-                mode = Mode.TextureShift;
-            }
-            else if (node.HasValue("controlledTransform") && node.HasValue("textureLayers") && node.HasValue("textureScaleStart") && node.HasValue("textureScaleEnd"))
-            {
-                controlledTransform = JUtil.FindPropTransformOrThrow(thisProp, node.GetValue("controlledTransform").Trim());
-                var textureLayers = node.GetValue("textureLayers").Split(',');
-                for (int i = 0; i < textureLayers.Length; ++i)
-                {
-                    textureLayer.Add(textureLayers[i].Trim());
-                }
-
-                textureScaleStart = ConfigNode.ParseVector2(node.GetValue("textureScaleStart"));
-                textureScaleEnd = ConfigNode.ParseVector2(node.GetValue("textureScaleEnd"));
-
-                mode = Mode.TextureScale;
             }
             else
             {
-                throw new ArgumentException("Cannot initiate any of the possible action modes.");
+                flash = false;
             }
 
-            if (reverse)
+            if (node.HasValue("alarmSound"))
             {
-                JUtil.Swap(ref activeColor, ref passiveColor);
-                JUtil.Swap(ref vectorStart, ref vectorEnd);
-                JUtil.Swap(ref rotationStart, ref rotationEnd);
-                JUtil.Swap(ref textureShiftStart, ref textureShiftEnd);
-                JUtil.Swap(ref textureScaleStart, ref textureScaleEnd);
-                animationSpeed = -animationSpeed;
-            }
-        }
+                alarmSoundVolume = 0.5f;
+                if (node.HasValue("alarmSoundVolume"))
+                {
+                    alarmSoundVolume = float.Parse(node.GetValue("alarmSoundVolume"));
+                }
+                audioOutput = JUtil.SetupIVASound(thisProp, node.GetValue("alarmSound"), alarmSoundVolume, false);
+                if (node.HasValue("alarmMustPlayOnce"))
+                {
+                    if (!bool.TryParse(node.GetValue("alarmMustPlayOnce"), out alarmMustPlayOnce))
+                    {
+                        throw new ArgumentException("So is 'alarmMustPlayOnce' true or false?");
+                    }
+                }
+                if (node.HasValue("alarmShutdownButton"))
+                {
+                    SmarterButton.CreateButton(thisProp, node.GetValue("alarmShutdownButton"), AlarmShutdown);
+                }
+                if (node.HasValue("alarmSoundLooping"))
+                {
+                    if (!bool.TryParse(node.GetValue("alarmSoundLooping"), out alarmSoundLooping))
+                    {
+                        throw new ArgumentException("So is 'alarmSoundLooping' true or false?");
+                    }
+                    audioOutput.audio.loop = alarmSoundLooping;
+                }
 
-        public void OnStart(InternalProp thisProp, string variableName)
-        {
-            RasterPropMonitorComputer rpmComp = RasterPropMonitorComputer.FindFromProp(thisProp);
-            variable = new VariableOrNumberRange(rpmComp, variableName, scaleRangeMin, scaleRangeMax);
-
-            passiveColor = JUtil.ParseColor32(passiveColorName, rpmComp);
-            activeColor = JUtil.ParseColor32(activeColorName, rpmComp);
-
-            audioOutput = JUtil.SetupIVASound(thisProp, alarmSoundName, alarmSoundVolume, false);
-
-            if (audioOutput != null)
-            {
-                audioOutput.audio.loop = alarmSoundLooping;
                 inIVA = (CameraManager.Instance.currentCameraMode == CameraManager.CameraMode.IVA);
 
                 GameEvents.OnCameraChange.Add(CameraChangeCallback);
             }
 
-            if (mode == Mode.Color || mode == Mode.TextureShift || mode == Mode.TextureScale)
+            if (node.HasValue("animationName"))
             {
-                // since materials get instanced by calling renderer.material; we can't cache this at load time because it will be referring to the material on the prefab
-                var renderer = controlledTransform.GetComponent<Renderer>();
-                affectedMaterial = renderer.isPartOfStaticBatch ? renderer.sharedMaterial : renderer.material;
-                affectedMaterial.SetColor(colorName, passiveColor);
-            }
+                animationName = node.GetValue("animationName");
+                if (node.HasValue("animationSpeed"))
+                {
+                    animationSpeed = float.Parse(node.GetValue("animationSpeed"));
 
-            LoadAnims(thisProp);
-
-            TurnOff();
-        }
-
-        private void LoadAnims(InternalProp thisProp)
-        {
-            if (!string.IsNullOrEmpty(animationName))
-            {
-                Animation[] anims = animateExterior ? thisProp.part.FindModelAnimators(animationName) : thisProp.FindModelAnimators(animationName);
+                    if (reverse)
+                    {
+                        animationSpeed = -animationSpeed;
+                    }
+                }
+                else
+                {
+                    animationSpeed = 0.0f;
+                }
+                Animation[] anims = node.HasValue("animateExterior") ? thisProp.part.FindModelAnimators(animationName) : thisProp.FindModelAnimators(animationName);
                 if (anims.Length > 0)
                 {
                     onAnim = anims[0];
                     onAnim.enabled = true;
                     onAnim[animationName].speed = 0;
                     onAnim[animationName].normalizedTime = reverse ? 1f : 0f;
+                    looping = node.HasValue("loopingAnimation");
                     if (looping)
                     {
                         onAnim[animationName].wrapMode = WrapMode.Loop;
+                        onAnim.wrapMode = WrapMode.Loop;
                         onAnim[animationName].speed = animationSpeed;
                         mode = Mode.LoopingAnimation;
                     }
@@ -443,16 +338,18 @@ namespace JSI
                         onAnim[animationName].wrapMode = WrapMode.Once;
                         mode = Mode.Animation;
                     }
+                    onAnim.Play();
                     //alwaysActive = node.HasValue("animateExterior");
                 }
                 else
                 {
-                    throw new ArgumentException("Animation " + animationName + " could not be found.");
+                    throw new ArgumentException("Animation "+ animationName +" could not be found.");
                 }
 
-                if (!string.IsNullOrEmpty(stopAnimationName))
+                if (node.HasValue("stopAnimationName"))
                 {
-                    anims = animateExterior ? thisProp.part.FindModelAnimators(stopAnimationName) : thisProp.FindModelAnimators(stopAnimationName);
+                    stopAnimationName = node.GetValue("stopAnimationName");
+                    anims = node.HasValue("animateExterior") ? thisProp.part.FindModelAnimators(stopAnimationName) : thisProp.FindModelAnimators(stopAnimationName);
                     if (anims.Length > 0)
                     {
                         offAnim = anims[0];
@@ -462,6 +359,7 @@ namespace JSI
                         if (looping)
                         {
                             offAnim[stopAnimationName].wrapMode = WrapMode.Loop;
+                            offAnim.wrapMode = WrapMode.Loop;
                             offAnim[stopAnimationName].speed = animationSpeed;
                             mode = Mode.LoopingAnimation;
                         }
@@ -473,9 +371,144 @@ namespace JSI
                     }
                 }
             }
-        }
+            else if (node.HasValue("activeColor") && node.HasValue("passiveColor") && node.HasValue("coloredObject"))
+            {
+                string colorNameString = "_EmissiveColor";
+                if (node.HasValue("colorName"))
+                {
+                    colorNameString = node.GetValue("colorName");
+                }
+                colorName = Shader.PropertyToID(colorNameString);
 
-        public Transform Transform => controlledTransform;
+                if (reverse)
+                {
+                    activeColor = JUtil.ParseColor32(node.GetValue("passiveColor"), thisProp.part, ref rpmComp);
+                    passiveColor = JUtil.ParseColor32(node.GetValue("activeColor"), thisProp.part, ref rpmComp);
+                }
+                else
+                {
+                    passiveColor = JUtil.ParseColor32(node.GetValue("passiveColor"), thisProp.part, ref rpmComp);
+                    activeColor = JUtil.ParseColor32(node.GetValue("activeColor"), thisProp.part, ref rpmComp);
+                }
+                Renderer colorShiftRenderer = thisProp.FindModelComponent<Renderer>(node.GetValue("coloredObject"));
+                affectedMaterial = colorShiftRenderer.material;
+                affectedMaterial.SetColor(colorName, passiveColor);
+                mode = Mode.Color;
+            }
+            else if (node.HasValue("controlledTransform") && node.HasValue("localRotationStart") && node.HasValue("localRotationEnd"))
+            {
+                controlledTransform = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim());
+                initialRotation = controlledTransform.localRotation;
+                if (node.HasValue("longPath"))
+                {
+                    longPath = true;
+                    if (reverse)
+                    {
+                        vectorEnd = ConfigNode.ParseVector3(node.GetValue("localRotationStart"));
+                        vectorStart = ConfigNode.ParseVector3(node.GetValue("localRotationEnd"));
+                    }
+                    else
+                    {
+                        vectorStart = ConfigNode.ParseVector3(node.GetValue("localRotationStart"));
+                        vectorEnd = ConfigNode.ParseVector3(node.GetValue("localRotationEnd"));
+                    }
+                }
+                else
+                {
+                    if (reverse)
+                    {
+                        rotationEnd = Quaternion.Euler(ConfigNode.ParseVector3(node.GetValue("localRotationStart")));
+                        rotationStart = Quaternion.Euler(ConfigNode.ParseVector3(node.GetValue("localRotationEnd")));
+                    }
+                    else
+                    {
+                        rotationStart = Quaternion.Euler(ConfigNode.ParseVector3(node.GetValue("localRotationStart")));
+                        rotationEnd = Quaternion.Euler(ConfigNode.ParseVector3(node.GetValue("localRotationEnd")));
+                    }
+                }
+                mode = Mode.Rotation;
+            }
+            else if (node.HasValue("controlledTransform") && node.HasValue("localTranslationStart") && node.HasValue("localTranslationEnd"))
+            {
+                controlledTransform = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim());
+                initialPosition = controlledTransform.localPosition;
+                if (reverse)
+                {
+                    vectorEnd = ConfigNode.ParseVector3(node.GetValue("localTranslationStart"));
+                    vectorStart = ConfigNode.ParseVector3(node.GetValue("localTranslationEnd"));
+                }
+                else
+                {
+                    vectorStart = ConfigNode.ParseVector3(node.GetValue("localTranslationStart"));
+                    vectorEnd = ConfigNode.ParseVector3(node.GetValue("localTranslationEnd"));
+                }
+                mode = Mode.Translation;
+            }
+            else if (node.HasValue("controlledTransform") && node.HasValue("localScaleStart") && node.HasValue("localScaleEnd"))
+            {
+                controlledTransform = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim());
+                initialScale = controlledTransform.localScale;
+                if (reverse)
+                {
+                    vectorEnd = ConfigNode.ParseVector3(node.GetValue("localScaleStart"));
+                    vectorStart = ConfigNode.ParseVector3(node.GetValue("localScaleEnd"));
+                }
+                else
+                {
+                    vectorStart = ConfigNode.ParseVector3(node.GetValue("localScaleStart"));
+                    vectorEnd = ConfigNode.ParseVector3(node.GetValue("localScaleEnd"));
+                }
+                mode = Mode.Scale;
+            }
+            else if (node.HasValue("controlledTransform") && node.HasValue("textureLayers") && node.HasValue("textureShiftStart") && node.HasValue("textureShiftEnd"))
+            {
+                affectedMaterial = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
+                var textureLayers = node.GetValue("textureLayers").Split(',');
+                for (int i = 0; i < textureLayers.Length; ++i)
+                {
+                    textureLayer.Add(textureLayers[i].Trim());
+                }
+
+                if (reverse)
+                {
+                    textureShiftEnd = ConfigNode.ParseVector2(node.GetValue("textureShiftStart"));
+                    textureShiftStart = ConfigNode.ParseVector2(node.GetValue("textureShiftEnd"));
+                }
+                else
+                {
+                    textureShiftStart = ConfigNode.ParseVector2(node.GetValue("textureShiftStart"));
+                    textureShiftEnd = ConfigNode.ParseVector2(node.GetValue("textureShiftEnd"));
+                }
+                mode = Mode.TextureShift;
+            }
+            else if (node.HasValue("controlledTransform") && node.HasValue("textureLayers") && node.HasValue("textureScaleStart") && node.HasValue("textureScaleEnd"))
+            {
+                affectedMaterial = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
+                var textureLayers = node.GetValue("textureLayers").Split(',');
+                for (int i = 0; i < textureLayers.Length; ++i)
+                {
+                    textureLayer.Add(textureLayers[i].Trim());
+                }
+
+                if (reverse)
+                {
+                    textureScaleEnd = ConfigNode.ParseVector2(node.GetValue("textureScaleStart"));
+                    textureScaleStart = ConfigNode.ParseVector2(node.GetValue("textureScaleEnd"));
+                }
+                else
+                {
+                    textureScaleStart = ConfigNode.ParseVector2(node.GetValue("textureScaleStart"));
+                    textureScaleEnd = ConfigNode.ParseVector2(node.GetValue("textureScaleEnd"));
+                }
+                mode = Mode.TextureScale;
+            }
+            else
+            {
+                throw new ArgumentException("Cannot initiate any of the possible action modes.");
+            }
+
+            TurnOff();
+        }
 
         /// <summary>
         /// Callback method to notify animators that flash that it's time to flash.
@@ -505,6 +538,13 @@ namespace JSI
             {
                 GameEvents.OnCameraChange.Remove(CameraChangeCallback);
             }
+            if (affectedMaterial != null)
+            {
+                UnityEngine.Object.Destroy(affectedMaterial);
+                affectedMaterial = null;
+            }
+            textureLayer = null;
+            controlledTransform = null;
         }
 
         /// <summary>
@@ -519,7 +559,6 @@ namespace JSI
                     break;
                 case Mode.Animation:
                     onAnim[animationName].normalizedTime = reverse ? 0f : 1f;
-                    onAnim.Play();
                     break;
                 case Mode.LoopingAnimation:
                     onAnim[animationName].speed = animationSpeed;
@@ -564,7 +603,6 @@ namespace JSI
                     break;
                 case Mode.Animation:
                     onAnim[animationName].normalizedTime = reverse ? 1f : 0f;
-                    onAnim.Play();
                     break;
                 case Mode.LoopingAnimation:
                     if (offAnim != null)
@@ -610,7 +648,7 @@ namespace JSI
         /// about, do what's appropriate if it is.
         /// </summary>
         /// <param name="value"></param>
-        public void UpdateValue(float value)
+        public void Update(float value)
         {
             bool newState = variable.IsInRange(value);
 

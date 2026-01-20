@@ -18,15 +18,12 @@
  * You should have received a copy of the GNU General Public License
  * along with RasterPropMonitor.  If not, see <http://www.gnu.org/licenses/>.
  ****************************************************************************/
-
 using KSP.UI;
 using KSP.UI.Screens;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using UnityEngine;
-using JSI;
 
 namespace JSI
 {
@@ -36,8 +33,9 @@ namespace JSI
     /// </summary>
     public class JSIInternalRPMButtons : IJSIModule
     {
-        public JSIInternalRPMButtons(Vessel myVessel) : base(myVessel)
+        public JSIInternalRPMButtons(Vessel myVessel)
         {
+            vessel = myVessel;
         }
 
         /// <summary>
@@ -211,25 +209,17 @@ namespace JSI
         }
 
         /// <summary>
-        /// returns a boolean indicating whether the specified SAS mode is active
+        /// Force the SAS mode buttons on the flight view to update when we
+        /// update modes under the hood.  Code from
+        /// http://forum.kerbalspaceprogram.com/threads/105074-Updating-the-auto-pilot-UI?p=1633958&viewfull=1#post1633958
         /// </summary>
-        /// <param name="mode"></param>
-        /// <returns></returns>
-        private bool ButtonSASModeState(VesselAutopilot.AutopilotMode mode)
+        /// <param name="newMode">The new autopilot mode</param>
+        private void ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode newMode)
         {
-            return vessel != null && vessel.Autopilot.GetActualMode() == mode;
-        }
-
-        /// <summary>
-        /// Common function for setting the autopilot mode
-        /// </summary>
-        /// <param name="mode"></param>
-        private void ButtonSASModeClick(VesselAutopilot.AutopilotMode mode)
-        {
-            if (vessel != null)
-            {
-                vessel.Autopilot.SetActualMode(mode);
-            }
+            // find the UI object on screen
+            UIStateToggleButton[] SASbtns = UnityEngine.Object.FindObjectOfType<VesselAutopilotUI>().modeButtons;
+            // set our mode, note it takes the mode as an int, generally top to bottom, left to right, as seen on the screen. Maneuver node being the exception, it is 9
+            SASbtns.ElementAt<UIStateToggleButton>((int)newMode).SetState(true);
         }
 
         /// <summary>
@@ -239,7 +229,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModeStabilityAssist(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.StabilityAssist);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.StabilityAssist))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.StabilityAssist);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.StabilityAssist);
+            }
         }
 
         /// <summary>
@@ -248,7 +242,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for Stability Assist</returns>
         public bool ButtonSASModeStabilityAssistState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.StabilityAssist);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.StabilityAssist);
         }
 
         /// <summary>
@@ -258,7 +252,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModePrograde(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.Prograde);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.Prograde))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.Prograde);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.Prograde);
+            }
         }
 
         /// <summary>
@@ -267,7 +265,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for Prograde</returns>
         public bool ButtonSASModeProgradeState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.Prograde);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.Prograde);
         }
 
         /// <summary>
@@ -277,7 +275,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModeRetrograde(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.Retrograde);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.Retrograde))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.Retrograde);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.Retrograde);
+            }
         }
 
         /// <summary>
@@ -286,7 +288,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for Retrograde</returns>
         public bool ButtonSASModeRetrogradeState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.Retrograde);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.Retrograde);
         }
 
         /// <summary>
@@ -296,7 +298,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModeNormal(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.Normal);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.Normal))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.Normal);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.Normal);
+            }
         }
 
         /// <summary>
@@ -305,7 +311,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for Normal</returns>
         public bool ButtonSASModeNormalState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.Normal);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.Normal);
         }
 
         /// <summary>
@@ -315,7 +321,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModeAntiNormal(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.Antinormal);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.Antinormal))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.Antinormal);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.Antinormal);
+            }
         }
 
         /// <summary>
@@ -324,7 +334,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for Antinormal</returns>
         public bool ButtonSASModeAntiNormalState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.Antinormal);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.Antinormal);
         }
 
         /// <summary>
@@ -334,7 +344,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModeRadialIn(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.RadialIn);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.RadialIn))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.RadialIn);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.RadialIn);
+            }
         }
 
         /// <summary>
@@ -343,7 +357,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for RadialIn</returns>
         public bool ButtonSASModeRadialInState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.RadialIn);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.RadialIn);
         }
 
         /// <summary>
@@ -353,7 +367,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModeRadialOut(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.RadialOut);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.RadialOut))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.RadialOut);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.RadialOut);
+            }
         }
 
         /// <summary>
@@ -362,7 +380,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for RadialOut</returns>
         public bool ButtonSASModeRadialOutState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.RadialOut);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.RadialOut);
         }
 
         /// <summary>
@@ -372,7 +390,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModeTarget(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.Target);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.Target))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.Target);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.Target);
+            }
         }
 
         /// <summary>
@@ -381,7 +403,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for Target</returns>
         public bool ButtonSASModeTargetState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.Target);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.Target);
         }
 
         /// <summary>
@@ -391,7 +413,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModeAntiTarget(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.AntiTarget);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.AntiTarget))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.AntiTarget);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.AntiTarget);
+            }
         }
 
         /// <summary>
@@ -400,7 +426,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for AntiTarget</returns>
         public bool ButtonSASModeAntiTargetState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.AntiTarget);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.AntiTarget);
         }
 
         /// <summary>
@@ -410,7 +436,11 @@ namespace JSI
         // Analysis disable once UnusedParameter
         public void ButtonSASModeManeuver(bool ignored)
         {
-            ButtonSASModeClick(VesselAutopilot.AutopilotMode.Maneuver);
+            if (vessel != null && vessel.Autopilot.CanSetMode(VesselAutopilot.AutopilotMode.Maneuver))
+            {
+                vessel.Autopilot.SetMode(VesselAutopilot.AutopilotMode.Maneuver);
+                ForceUpdateSASModeToggleButtons(VesselAutopilot.AutopilotMode.Maneuver);
+            }
         }
 
         /// <summary>
@@ -419,7 +449,7 @@ namespace JSI
         /// <returns>true if SAS is currently set for Maneuver</returns>
         public bool ButtonSASModeManeuverState()
         {
-            return ButtonSASModeState(VesselAutopilot.AutopilotMode.Maneuver);
+            return ((vessel != null) && vessel.Autopilot.Mode == VesselAutopilot.AutopilotMode.Maneuver);
         }
 
         /**
@@ -555,7 +585,7 @@ namespace JSI
         {
             if (vessel != null && vessel.IsRecoverable)
             {
-				JSI.Core.JSIVesselRecovery.Recover(vessel);
+                GameEvents.OnVesselRecoveryRequested.Fire(vessel);
             }
         }
 
@@ -569,7 +599,7 @@ namespace JSI
         }
 
         /// <summary>
-        /// Undock or detach the current reference part, or the inferred first dock on
+        /// Undock the current reference part, or the inferred first dock on
         /// the current vessel.
         /// 
         /// The state of the dock appears to be queriable only by reading a
@@ -594,10 +624,6 @@ namespace JSI
             if (comp.mainDockingNodeState == RPMVesselComputer.DockingNodeState.DOCKED)
             {
                 comp.mainDockingNode.Undock();
-            }
-            else if (comp.mainDockingNodeState == RPMVesselComputer.DockingNodeState.PREATTACHED)
-            {
-                comp.mainDockingNode.Decouple();
             }
         }
 
@@ -635,7 +661,7 @@ namespace JSI
         }
 
         /// <summary>
-        /// Is the current reference dock docked or attached to something?
+        /// Is the current reference dock docked to something?
         /// </summary>
         /// <returns></returns>
         public bool DockDocked()
@@ -646,7 +672,7 @@ namespace JSI
             }
 
             RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-            return (comp.mainDockingNodeState == RPMVesselComputer.DockingNodeState.DOCKED || comp.mainDockingNodeState == RPMVesselComputer.DockingNodeState.PREATTACHED);
+            return (comp.mainDockingNodeState == RPMVesselComputer.DockingNodeState.DOCKED);
         }
 
         /// <summary>
@@ -956,128 +982,6 @@ namespace JSI
             return true;
         }
 
-        // ----- antennas
-
-        public bool AntennasDeployable()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.antennasDeployable;
-            }
-            return false;
-        }
-
-        public bool AntennasDeployed()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.antennasDeployed;
-            }
-            return false;
-        }
-
-        public bool AntennasBroken()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.antennasBroken;
-            }
-            return false;
-        }
-
-        public bool AntennasReady()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.antennasReady;
-            }
-            return false;
-        }
-
-        public void SetAntennasDeployed(bool state)
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                comp.SetDeployAntennas(state);
-            }
-        }
-
-        public bool GetAntennaDeployState()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.antennasDeployedOrDeploying;
-            }
-            return false;
-        }
-
-        // ----- radiators
-
-        public bool RadiatorsDeployable()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.radiatorsDeployable;
-            }
-            return false;
-        }
-
-        public bool RadiatorsDeployed()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.radiatorsDeployed;
-            }
-            return false;
-        }
-
-        public bool RadiatorsBroken()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.radiatorsBroken;
-            }
-            return false;
-        }
-
-        public bool RadiatorsActive()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.radiatorsActive;
-            }
-            return false;
-        }
-
-        public void SetRadiatorsActive(bool state)
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                comp.SetRadiatorsActive(state);
-            }
-        }
-
-        public bool GetRadiatorActiveState()
-        {
-            if (vessel != null)
-            {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-                return comp.radiatorsActive || comp.radiatorsDeployedOrDeploying;
-            }
-            return false;
-        }
-
         /// <summary>
         /// Sets multi-mode engines to run in primary mode (true) or secondary
         /// mode (false).
@@ -1154,7 +1058,7 @@ namespace JSI
                 RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
                 for (int i = 0; i < comp.availableEngines.Count; ++i)
                 {
-                    comp.availableEngines[i].engineModule.thrustPercentage = (float)limit;
+                    comp.availableEngines[i].thrustPercentage = (float)limit;
                 }
             }
         }
@@ -1170,7 +1074,7 @@ namespace JSI
                 return 0.0; // StabilityAssist
             }
             double mode;
-            switch (vessel.Autopilot.GetActualMode())
+            switch (vessel.Autopilot.Mode)
             {
                 case VesselAutopilot.AutopilotMode.StabilityAssist:
                     mode = 0.0;
@@ -1250,9 +1154,10 @@ namespace JSI
                     return;
             }
 
-            if (vessel != null)
+            if (vessel != null && vessel.Autopilot.CanSetMode(autopilotMode))
             {
-                vessel.Autopilot.SetActualMode(autopilotMode);
+                vessel.Autopilot.SetMode(autopilotMode);
+                ForceUpdateSASModeToggleButtons(autopilotMode);
             }
         }
 
@@ -1325,172 +1230,6 @@ namespace JSI
         public void SetYawTrim(double trimPercent)
         {
             FlightInputHandler.state.yawTrim = (float)(trimPercent.Clamp(-100.0, 100.0)) / 100.0f;
-        }
-
-        public void ButtonIncreaseWarpLevel(bool ignored)
-        {
-            TimeWarp.SetRate(TimeWarp.CurrentRateIndex + 1, false);
-        }
-
-        public bool ButtonIncreaseWarpLevelState()
-        {
-            return TimeWarp.CurrentRateIndex < TimeWarp.fetch.warpRates.Length - 1;
-        }
-
-        public void ButtonDecreaseWarpLevel(bool ignored)
-        {
-            TimeWarp.SetRate(TimeWarp.CurrentRateIndex - 1, false);
-        }
-
-        public bool ButtonDecreaseWarpLevelState()
-        {
-            return TimeWarp.CurrentRateIndex > 0;
-        }
-
-        public void ButtonCancelWarp(bool ignored)
-        {
-            TimeWarp.fetch.CancelAutoWarp();
-            TimeWarp.SetRate(0, false);
-        }
-
-        public bool ButtonCancelWarpState()
-        {
-            return TimeWarp.CurrentRateIndex > 0;
-        }
-
-        public void ButtonSetWarpRailsMode(bool railsMode)
-        {
-            TimeWarp.fetch.Mode = railsMode ? TimeWarp.Modes.HIGH: TimeWarp.Modes.LOW;
-            TimeWarp.SetRate(0, true);
-        }
-
-        public bool ButtonSetWarpRailsModeState()
-        {
-            return TimeWarp.fetch.Mode == TimeWarp.Modes.HIGH;
-        }
-
-        public static double GetBurnDuration(float dv)
-        {
-            var vesselDeltaV = FlightGlobals.ActiveVessel.VesselDeltaV;
-            double totalDuration = 0;
-
-            foreach (var stageInfo in vesselDeltaV.OperatingStageInfo)
-            {
-                bool enoughDv = stageInfo.deltaVinVac >= dv;
-                float dvForThisStage = enoughDv ? dv : stageInfo.deltaVinVac;
-                
-                totalDuration += stageInfo.CalculateTimeRequiredDV(false, dvForThisStage);
-                dv -= dvForThisStage;
-
-                if (enoughDv)
-                {
-                    break;
-                }
-            }
-
-            return totalDuration;
-        }
-
-        // Warps to a maneuver node, SOI change, AP or PE
-        double GetNextWarpEventTime()
-        {
-            double targetUT = -1;
-
-            double peTime = vessel.orbit.GetNextPeriapsisTime(Planetarium.GetUniversalTime());
-            if (peTime < Planetarium.GetUniversalTime()) peTime = double.MaxValue;
-
-            if (vessel.patchedConicSolver != null && vessel.patchedConicSolver.maneuverNodes.Count > 0)
-            {
-                double halfBurnDuration = GetBurnDuration((float)vessel.patchedConicSolver.maneuverNodes[0].DeltaV.magnitude * 0.5f);
-                targetUT = vessel.patchedConicSolver.maneuverNodes[0].UT - halfBurnDuration - GameSettings.WARP_TO_MANNODE_MARGIN;
-            }
-            else if (vessel.orbit.nextPatch != null && vessel.orbit.nextPatch.activePatch)
-            {
-                // note we ADD the margin so that we end up inside the target SOI
-                targetUT = Math.Min(peTime - GameSettings.WARP_TO_MANNODE_MARGIN, vessel.orbit.EndUT + GameSettings.WARP_TO_MANNODE_MARGIN) ;
-            }
-            else
-            {
-                double apTime = vessel.orbit.eccentricity < 1 ? vessel.orbit.GetNextApoapsisTime(Planetarium.GetUniversalTime()) : double.MaxValue;
-
-                double nextApsideTime = Math.Min(apTime, peTime);
-
-                if (nextApsideTime != double.MaxValue)
-                {
-                    targetUT = nextApsideTime - GameSettings.WARP_TO_MANNODE_MARGIN;
-                }
-            }
-
-            return targetUT;
-        }
-
-        public void ButtonWarpToNextEvent(bool ignored)
-        {
-            double targetUT = GetNextWarpEventTime();
-
-            if (targetUT > 0)
-            {
-                TimeWarp.fetch.WarpTo(targetUT);
-            }
-        }
-
-        public bool ButtonWarpToNextEventState()
-        {
-            return GetNextWarpEventTime() > 0;
-        }
-
-        public void RevertToLaunch(bool ignored)
-        {
-            if (CanRevert())
-            {
-                FlightDriver.RevertToLaunch();
-            }
-        }
-
-        public bool CanRevert()
-        {
-            return FlightDriver.CanRevert;
-        }
-
-        public void QuickSave(bool ignored)
-        {
-            if (CanQuickSave())
-            {
-                QuickSaveLoad.QuickSave();
-            }
-        }
-
-        public bool CanQuickSave()
-        {
-            // TODO: the stock game does a lot of extra logic here to test if quicksaving is allowed - see QuickSaveClearToSave
-            return InputLockManager.IsUnlocked(ControlTypes.QUICKSAVE) && HighLogic.CurrentGame.Parameters.Flight.CanQuickSave;
-        }
-
-        public void QuickLoad(bool ignored)
-        {
-            if (CanQuickLoad())
-            {
-                var methodinfo = typeof(QuickSaveLoad).GetMethod("quickLoad", BindingFlags.Instance | BindingFlags.NonPublic);
-                methodinfo.Invoke(QuickSaveLoad.fetch, new object[] { "quicksave", HighLogic.SaveFolder });
-            }
-        }
-
-        public bool CanQuickLoad()
-        {
-            return InputLockManager.IsUnlocked(ControlTypes.QUICKLOAD) && HighLogic.CurrentGame.Parameters.Flight.CanQuickLoad;
-        }
-    }
-
-    static class StageInfoExtension
-    {
-        static MethodInfo CalculateTimeRequiredDV_Method = typeof(DeltaVStageInfo).GetMethod("CalculateTimeRequiredDV", BindingFlags.Instance | BindingFlags.NonPublic);
-        static object[] CalculateTimeRequiredDV_Params = new object[] { false, 0.0f };
-
-        internal static double CalculateTimeRequiredDV(this DeltaVStageInfo stageInfo, bool runningActive, float deltaVRequested)
-        {
-            CalculateTimeRequiredDV_Params[0] = runningActive;
-            CalculateTimeRequiredDV_Params[1] = deltaVRequested;
-            return (double)CalculateTimeRequiredDV_Method.Invoke(stageInfo, CalculateTimeRequiredDV_Params);
         }
     }
 }

@@ -28,7 +28,7 @@ namespace JSI
 {
     class JSIFAR : IJSIModule
     {
-        public static readonly bool farFound;
+        private static readonly bool farFound;
 
         // FARAPI.ActiveVesselAoA()
         private static readonly MethodInfo farActiveVesselAoA;
@@ -172,7 +172,6 @@ namespace JSI
                 }
 
                 farFound = true;
-                IJSIModule.RegisterModule(typeof(JSIFAR));
             }
             catch (Exception e)
             {
@@ -182,8 +181,9 @@ namespace JSI
 
         }
 
-        public JSIFAR(Vessel myVessel) : base(myVessel)
+        public JSIFAR(Vessel myVessel)
         {
+            vessel = myVessel;
             JUtil.LogMessage(this, "A supported version of FAR is {0}", (farFound) ? "present" : "not available");
         }
 

@@ -55,8 +55,6 @@ namespace JSI
 
         static JSIParachute()
         {
-            IJSIModule.RegisterModule(typeof(JSIParachute));
-
             try
             {
                 Type rcMRC = null;
@@ -158,14 +156,15 @@ namespace JSI
             }
         }
 
-        public JSIParachute(Vessel myVessel) : base(myVessel)
+        public JSIParachute(Vessel myVessel)
         {
+            vessel = myVessel;
             JUtil.LogMessage(this, "A supported version of RealChute is {0}", (rcFound) ? "present" : "not available");
         }
 
         public void ArmParachutes(bool state)
         {
-            if (vessel != null)
+            if (rcFound && vessel != null)
             {
                 RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
                 if (state)
@@ -174,31 +173,12 @@ namespace JSI
                     {
                         armChute(comp.availableRealChutes[i]);
                     }
-
-                    for (int i = 0; i < comp.availableParachutes.Count; ++i)
-                    {
-                        if (comp.availableParachutes[i].deploymentState == ModuleParachute.deploymentStates.STOWED)
-                        {
-                            comp.availableParachutes[i].Deploy();
-                        }
-                    }
                 }
                 else
                 {
                     for (int i = 0; i < comp.availableRealChutes.Count; ++i)
                     {
                         disarmChute(comp.availableRealChutes[i]);
-                    }
-
-                    for (int i = 0; i < comp.availableParachutes.Count; ++i)
-                    {
-                        var chute = comp.availableParachutes[i];
-
-                        if (chute.deploymentState == ModuleParachute.deploymentStates.ACTIVE)
-                        {
-                            chute.Disarm();
-                            chute.deploymentSafeState = ModuleParachute.deploymentSafeStates.SAFE;
-                        }
                     }
                 }
             }
@@ -211,12 +191,10 @@ namespace JSI
                 return false; // early
             }
 
-            RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-
-            bool anyArmed = comp.anyParachutesArmed;
-
-            if (!anyArmed)
+            bool anyArmed = false;
+            if (rcFound)
             {
+                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
                 for (int i = 0; i < comp.availableRealChutes.Count; ++i)
                 {
                     if ((bool)rcArmed.GetValue(comp.availableRealChutes[i]) == true)
@@ -241,9 +219,12 @@ namespace JSI
             {
                 RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
 
-                for (int i = 0; i < comp.availableRealChutes.Count; ++i)
+                if (rcFound)
                 {
-                    cutChute(comp.availableRealChutes[i]);
+                    for (int i = 0; i < comp.availableRealChutes.Count; ++i)
+                    {
+                        cutChute(comp.availableRealChutes[i]);
+                    }
                 }
 
                 for(int i=0; i<comp.availableParachutes.Count; ++i)
@@ -257,7 +238,7 @@ namespace JSI
         }
 
         /// <summary>
-        /// Deploys stowed parachutes, regardless of safe state
+        /// Deploys stowed parachutes.
         /// </summary>
         /// <param name="state"></param>
         public void DeployParachutes(bool state)
@@ -266,17 +247,20 @@ namespace JSI
             {
                 RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
 
-                for (int i = 0; i < comp.availableRealChutes.Count; ++i)
+                if (rcFound)
                 {
-                    deployChute(comp.availableRealChutes[i]);
+                    for (int i = 0; i < comp.availableRealChutes.Count; ++i)
+                    {
+                        deployChute(comp.availableRealChutes[i]);
+                    }
                 }
 
                 for (int i = 0; i < comp.availableParachutes.Count; ++i)
                 {
-                    var chute = comp.availableParachutes[i];
-                    chute.automateSafeDeploy = (int)ModuleParachute.deploymentSafeStates.UNSAFE;
-                    chute.minAirPressureToOpen = chute.clampMinAirPressure;
-                    chute.Deploy();
+                    if (comp.availableParachutes[i].deploymentState == ModuleParachute.deploymentStates.STOWED)
+                    {
+                        comp.availableParachutes[i].Deploy();
+                    }
                 }
             }
         }
@@ -295,7 +279,7 @@ namespace JSI
             RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
             bool anyDeployed = comp.anyParachutesDeployed;
 
-            if (!anyDeployed)
+            if (rcFound && !anyDeployed)
             {
                 for (int i = 0; i < comp.availableRealChutes.Count; ++i)
                 {
@@ -350,7 +334,7 @@ namespace JSI
 
             for (int i = 0; i < comp.availableParachutes.Count; ++i)
             {
-                if (comp.availableParachutes[i].deploymentSafeState != ModuleParachute.deploymentSafeStates.SAFE)
+                if (comp.availableParachutes[i].deploySafe != "Safe")
                 {
                     allSafe = false;
                 }

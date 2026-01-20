@@ -1,4 +1,4 @@
-/*****************************************************************************
+﻿/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -27,8 +27,6 @@ namespace JSI
 {
     class JSINumericInput : InternalModule
     {
-        [SerializeReference] ConfigNodeHolder moduleConfig;
-
         [KSPField]
         public string perPodPersistenceName = string.Empty;
 
@@ -59,12 +57,6 @@ namespace JSI
 
         private float remainder = 0.0f;
 
-        public override void OnLoad(ConfigNode node)
-        {
-            moduleConfig = ScriptableObject.CreateInstance<ConfigNodeHolder>();
-            moduleConfig.Node = node;
-        }
-
         public void Start()
         {
             if (HighLogic.LoadedSceneIsEditor)
@@ -74,7 +66,7 @@ namespace JSI
 
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
 
                 if (string.IsNullOrEmpty(perPodPersistenceName))
                 {
@@ -125,18 +117,28 @@ namespace JSI
                     rpmComp.SetPersistentVariable(perPodPersistenceName, value, perPodPersistenceIsGlobal);
                 }
 
-                ConfigNode[] inputNodes = moduleConfig.Node.GetNodes("USERINPUTSET");
-
-                for (int i = 0; i < inputNodes.Length; i++)
+                ConfigNode moduleConfig = null;
+                foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("PROP"))
                 {
-                    try
+                    if (node.GetValue("name") == internalProp.propName)
                     {
-                        numericInputs.Add(new NumericInput(inputNodes[i], internalProp));
-                        //JUtil.LogMessage(this, "Added USERINPUTSET {0}", inputNodes[i].GetValue("switchTransform"));
-                    }
-                    catch (ArgumentException e)
-                    {
-                        JUtil.LogErrorMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propID);
+
+                        moduleConfig = node.GetNodes("MODULE")[moduleID];
+                        ConfigNode[] inputNodes = moduleConfig.GetNodes("USERINPUTSET");
+
+                        for (int i = 0; i < inputNodes.Length; i++)
+                        {
+                            try
+                            {
+                                numericInputs.Add(new NumericInput(inputNodes[i], internalProp));
+                                //JUtil.LogMessage(this, "Added USERINPUTSET {0}", inputNodes[i].GetValue("switchTransform"));
+                            }
+                            catch (ArgumentException e)
+                            {
+                                JUtil.LogErrorMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propID);
+                            }
+                        }
+                        break;
                     }
                 }
 
@@ -234,7 +236,7 @@ namespace JSI
             private float delta = 0.0f;
             private double pressStart = 0.0;
             private double lastUpdate = 0.0;
-            private readonly VariableOrNumber increment = null;
+            private readonly float increment = 0.0f;
             private readonly FloatCurve incrementCurve = null;
             private bool pressed = false;
             private readonly bool pressAndHold = false;
@@ -258,10 +260,11 @@ namespace JSI
                     throw new Exception("USERINPUTSET missing increment or incrementCurve, or it has both");
                 }
 
-                RasterPropMonitorComputer rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
-                increment = rpmComp.InstantiateVariableOrNumber(node.GetValue("increment"));
-                
-                if (node.HasNode("incrementCurve"))
+                if (node.HasValue("increment") && !float.TryParse(node.GetValue("increment"), out increment))
+                {
+                    throw new Exception("USERINPUTSET bad increment");
+                }
+                else if (node.HasNode("incrementCurve"))
                 {
                     ConfigNode incNode = node.GetNode("incrementCurve");
                     string[] keys = incNode.GetValues("key");
@@ -400,7 +403,7 @@ namespace JSI
 
             private void Click()
             {
-                delta += increment.AsFloat();
+                delta += increment;
                 pressed = true;
             }
 

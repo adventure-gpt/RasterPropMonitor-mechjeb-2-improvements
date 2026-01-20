@@ -26,7 +26,6 @@ using System.Diagnostics;
 using System.Reflection;
 using UnityEngine;
 using KSP.UI.Screens.Flight;
-using static JSI.RasterPropMonitorComputer;
 
 // MOARdV TODO:
 // Add callbacks for docking, undocking, staging, vessel switching
@@ -57,9 +56,6 @@ namespace JSI
         internal static readonly int sasGroupNumber = BaseAction.GetGroupIndex(KSPActionGroup.SAS);
         internal static readonly int lightGroupNumber = BaseAction.GetGroupIndex(KSPActionGroup.Light);
         internal static readonly int rcsGroupNumber = BaseAction.GetGroupIndex(KSPActionGroup.RCS);
-        internal static readonly int abortGroupNumber = BaseAction.GetGroupIndex(KSPActionGroup.Abort);
-        internal static readonly int stageGroupNumber = BaseAction.GetGroupIndex(KSPActionGroup.Stage);
-
         internal static readonly int[] actionGroupID = {
             BaseAction.GetGroupIndex(KSPActionGroup.Custom10),
             BaseAction.GetGroupIndex(KSPActionGroup.Custom01),
@@ -72,7 +68,18 @@ namespace JSI
             BaseAction.GetGroupIndex(KSPActionGroup.Custom08),
             BaseAction.GetGroupIndex(KSPActionGroup.Custom09)
         };
-
+        internal readonly string[] actionGroupMemo = {
+            "AG0",
+            "AG1",
+            "AG2",
+            "AG3",
+            "AG4",
+            "AG5",
+            "AG6",
+            "AG7",
+            "AG8",
+            "AG9"
+        };
         private const float gee = 9.81f;
         private readonly double upperAtmosphereLimit = Math.Log(100000.0);
         #endregion
@@ -90,13 +97,13 @@ namespace JSI
         //        return (vessel == null) ? Guid.Empty : vessel.id;
         //    }
         //}
-        // internal LinearAtmosphereGauge linearAtmosGauge;
+        private NavBall navBall;
+        internal LinearAtmosphereGauge linearAtmosGauge;
 
         // Data refresh
         private int dataUpdateCountdown;
         private int refreshDataRate = 60;
         private bool timeToUpdate = false;
-        private double lastUTC;
 
         // Craft-relative basis vectors
         internal Vector3 forward;
@@ -181,10 +188,7 @@ namespace JSI
             }
         }
 
-		public Quaternion AttitudeGymbal { get; private set; }
-		public Quaternion RelativeGymbal { get; private set; }
-
-		internal Quaternion rotationVesselSurface;
+        internal Quaternion rotationVesselSurface;
         public Quaternion RotationVesselSurface
         {
             get
@@ -214,6 +218,8 @@ namespace JSI
         internal double speedHorizontal;
         internal double speedVertical;
         internal double speedVerticalRounded;
+        internal float totalDataAmount;
+        internal float totalExperimentCount;
         internal float totalShipDryMass;
         internal float totalShipWetMass;
 
@@ -344,6 +350,16 @@ namespace JSI
             return instances[v.id];
         }
 
+        /// <summary>
+        /// Public interface to fetch values.
+        /// </summary>
+        /// <param name="variableName"></param>
+        /// <returns></returns>
+        public object ProcessVariable(string variableName)
+        {
+            return null;
+        }
+
         private Kerbal lastActiveKerbal = null;
         /// <summary>
         /// Used to control what portion of a Kerbal is visible while "looking
@@ -399,17 +415,94 @@ namespace JSI
         //    return Activation.FlightScene;
         //}
 
+        private Dictionary<Guid, Dictionary<string, object>> persistentNodeData = new Dictionary<Guid, Dictionary<string, object>>();
+        private bool anyRestored = false;
+
         /// <summary>
         /// Load and parse persistent variables
         /// </summary>
         /// <param name="node"></param>
-        public override void OnLoad(ConfigNode node)
+        protected override void OnLoad(ConfigNode node)
         {
             base.OnLoad(node);
 
             try
             {
-                PersistentVariables.Load(node);
+                ConfigNode[] pers = node.GetNodes("RPM_PERSISTENT_VARS");
+                for (int nodeIdx = 0; nodeIdx < pers.Length; ++nodeIdx)
+                {
+                    string nodeName = string.Empty;
+                    if (pers[nodeIdx].TryGetValue("name", ref nodeName))
+                    {
+                        Dictionary<string, object> myPersistentVars = new Dictionary<string, object>();
+
+                        for (int i = 0; i < pers[nodeIdx].CountValues; ++i)
+                        {
+                            ConfigNode.Value val = pers[nodeIdx].values[i];
+
+                            string[] value = val.value.Split(',');
+                            if (value.Length > 2) // urk.... commas in the stored string
+                            {
+                                string s = value[1].Trim();
+                                for (int j = 2; j < value.Length; ++j)
+                                {
+                                    s = s + ',' + value[i].Trim();
+                                }
+                                value[1] = s;
+                            }
+
+                            if (value[0] != nodeName)
+                            {
+                                switch (value[0].Trim())
+                                {
+                                    case "System.Boolean":
+                                        bool vb = false;
+                                        if (Boolean.TryParse(value[1].Trim(), out vb))
+                                        {
+                                            myPersistentVars[val.name.Trim()] = vb;
+                                        }
+                                        else
+                                        {
+                                            JUtil.LogErrorMessage(this, "Failed to parse {0} as a boolean", val.name);
+                                        }
+                                        break;
+                                    case "System.Int32":
+                                        int vi = 0;
+                                        if (Int32.TryParse(value[1].Trim(), out vi))
+                                        {
+                                            myPersistentVars[val.name.Trim()] = vi;
+                                        }
+                                        else
+                                        {
+                                            JUtil.LogErrorMessage(this, "Failed to parse {0} as an int", val.name);
+                                        }
+                                        break;
+                                    case "System.Single":
+                                        float vf = 0.0f;
+                                        if (Single.TryParse(value[1].Trim(), out vf))
+                                        {
+                                            myPersistentVars[val.name.Trim()] = vf;
+                                        }
+                                        else
+                                        {
+                                            JUtil.LogErrorMessage(this, "Failed to parse {0} as a float", val.name);
+                                        }
+                                        break;
+                                    default:
+                                        JUtil.LogErrorMessage(this, "Found unknown persistent type {0}", value[0]);
+                                        break;
+                                }
+                            }
+                        }
+
+                        persistentNodeData.Add(new Guid(nodeName), myPersistentVars);
+                    }
+                }
+
+                if (persistentNodeData.Count > 0)
+                {
+                    JUtil.LogMessage(this, "OnLoad for vessel {0}", vessel.id);
+                }
             }
             catch (Exception e)
             {
@@ -418,21 +511,91 @@ namespace JSI
         }
 
         /// <summary>
+        /// When the RPMC object is restored, it needs to query here to get its
+        /// persistent data, since it didn't exist during OnLoad.
+        /// </summary>
+        /// <param name="rpmcId"></param>
+        /// <returns></returns>
+        internal Dictionary<string, object> RestorePersistents(Guid rpmcId)
+        {
+            // Whether we have the persistent data or not, we want to flag
+            // that we did indeed have someone ask for persistents, which
+            // means we have an active vessel.
+            anyRestored = true;
+            if (persistentNodeData.ContainsKey(rpmcId))
+            {
+                return persistentNodeData[rpmcId];
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Save our persistent variables
         /// </summary>
         /// <param name="node"></param>
-        public override void OnSave(ConfigNode node)
+        protected override void OnSave(ConfigNode node)
         {
             base.OnSave(node);
 
             // Are null vessels still possible?
             if (vessel != null)
             {
-                PersistentVariables.Save(node);
+                // If anyRestored is true, at least one PartModule was found on
+                // this vessel, and it was loaded.  In that case, we want to
+                // iterate over the RasterPropMonitorComputer modules so we can
+                // save any updated persistent data.
+                if (anyRestored)
+                {
+                    JUtil.LogMessage(this, "OnSave for vessel {0}", vessel.id);
+                    for (int partIdx = 0; partIdx < vessel.parts.Count; ++partIdx)
+                    {
+                        RasterPropMonitorComputer rpmc = RasterPropMonitorComputer.Instantiate(vessel.parts[partIdx], false);
+                        if (rpmc != null && rpmc.persistentVars.Count > 0)
+                        {
+                            JUtil.LogMessage(this, "Storing RPMC {0} persistents", rpmc.RPMCid);
+                            ConfigNode rpmcPers = new ConfigNode("RPM_PERSISTENT_VARS");
+                            rpmcPers.AddValue("name", rpmc.RPMCid);
+                            foreach (var val in rpmc.persistentVars)
+                            {
+                                string value = string.Format("{0},{1}", val.Value.GetType().ToString(), val.Value.ToString());
+                                rpmcPers.AddValue(val.Key, value);
+                            }
+                            node.AddNode(rpmcPers);
+                        }
+                    }
+                }
+                else
+                {
+                    // If anyRestored was false, our vessel did not load, so all we need
+                    // to do is re-save the data we cached in OnLoad.
+                    if (persistentNodeData.Count > 0)
+                    {
+                        JUtil.LogMessage(this, "OnSave for vessel {0}", vessel.id);
+                        foreach (var dict in persistentNodeData)
+                        {
+                            JUtil.LogMessage(this, "Storing RPMC {0} persistents", dict.Key);
+                            ConfigNode rpmcPers = new ConfigNode("RPM_PERSISTENT_VARS");
+                            rpmcPers.AddValue("name", dict.Key.ToString());
+                            foreach (var val in dict.Value)
+                            {
+                                string value = string.Format("{0},{1}", val.Value.GetType().ToString(), val.Value.ToString());
+                                rpmcPers.AddValue(val.Key, value);
+                            }
+                            node.AddNode(rpmcPers);
+                        }
+                    }
+                }
             }
+            //else if (vid != Guid.Empty)
+            //{
+            //    JUtil.LogErrorMessage(this, "OnSave vessel is null? expected for {0}", vid);
+            //}
         }
 
-        public override void OnAwake()
+        protected override void OnAwake()
         {
             base.OnAwake();
 
@@ -486,7 +649,7 @@ namespace JSI
             GameEvents.onVesselDestroy.Add(onVesselDestroy);
         }
 
-        public override void OnStart()
+        protected override void OnStart()
         {
             if (vessel == null)
             {
@@ -507,6 +670,25 @@ namespace JSI
                 instances.Add(vessel.id, this);
                 //JUtil.LogMessage(this, "Awake for vessel {0} ({1}).", (string.IsNullOrEmpty(vessel.vesselName)) ? "(no name)" : vessel.vesselName, vessel.id);
             }
+            try
+            {
+                navBall = UnityEngine.Object.FindObjectOfType<KSP.UI.Screens.Flight.NavBall>();
+            }
+            catch (Exception e)
+            {
+                JUtil.LogErrorMessage(this, "Failed to fetch the NavBall: {0}", e);
+                navBall = new NavBall();
+            }
+
+            try
+            {
+                linearAtmosGauge = UnityEngine.Object.FindObjectOfType<KSP.UI.Screens.Flight.LinearAtmosphereGauge>();
+            }
+            catch (Exception e)
+            {
+                JUtil.LogErrorMessage(this, "Failed to fetch the LinearAtmosphereGauge: {0}", e);
+                linearAtmosGauge = new LinearAtmosphereGauge();
+            }
 
             IntakeAir_U_to_grams = 1000000.0f * PartResourceLibrary.Instance.GetDefinition("IntakeAir").density;
 
@@ -519,10 +701,14 @@ namespace JSI
 
         public void OnDestroy()
         {
-            //if (!HighLogic.LoadedSceneIsFlight)
-            //{
-            //    return;
-            //}
+            if (vessel == null)// || vid == Guid.Empty)
+            {
+                return;
+            }
+            if (!HighLogic.LoadedSceneIsFlight)
+            {
+                return;
+            }
 
             //if (vid != vessel.id)
             //{
@@ -539,11 +725,6 @@ namespace JSI
 #endif
             GameEvents.onVesselDestroy.Remove(onVesselDestroy);
 
-            if (vessel == null)// || vid == Guid.Empty)
-            {
-                return;
-            }
-
             // This very likely was handled in the OnVesselDestroy callback,
             // but there is no harm trying again here.
             if (instances.ContainsKey(vessel.id))
@@ -553,6 +734,7 @@ namespace JSI
             }
 
             //vid = Guid.Empty;
+            navBall = null;
 
             target = null;
             targetDockingNode = null;
@@ -582,7 +764,6 @@ namespace JSI
             {
                 //JUtil.LogMessage(this, "UpdateCheck - time to update");
                 timeToUpdate = true;
-                UpdateVariables();
             }
 
             if (!JUtil.IsInIVA() && lastActiveKerbal != null)
@@ -596,14 +777,26 @@ namespace JSI
             }
         }
 
-        public void UpdateVariables()
+        public void FixedUpdate()
         {
-            double currentUTC = Planetarium.fetch.time;
-            if (currentUTC == lastUTC)
+            if (!HighLogic.LoadedSceneIsFlight)
             {
                 return;
             }
 
+            if (vessel == null /*|| vessel.isActiveVessel == false*/)
+            {
+                return;
+            }
+
+            if (JUtil.RasterPropMonitorShouldUpdate(vessel))
+            {
+                UpdateVariables();
+            }
+        }
+
+        public void UpdateVariables()
+        {
             // Update values related to the vessel (position, CoM, etc)
             if (timeToUpdate)
             {
@@ -625,8 +818,6 @@ namespace JSI
                 FetchVesselData();
                 FetchTargetData();
             }
-
-            lastUTC = currentUTC;
         }
 
         //private void DebugFunction()
@@ -637,6 +828,27 @@ namespace JSI
         #endregion
 
         #region Interface Methods
+        /// <summary>
+        /// Initialize vessel description-based values.
+        /// </summary>
+        /// <param name="vesselDescription"></param>
+        internal void SetVesselDescription(string vesselDescription)
+        {
+            string[] descriptionStrings = vesselDescription.UnMangleConfigText().Split(JUtil.LineSeparator, StringSplitOptions.None);
+            for (int i = 0; i < descriptionStrings.Length; i++)
+            {
+                if (descriptionStrings[i].StartsWith("AG", StringComparison.Ordinal) && descriptionStrings[i][3] == '=')
+                {
+                    uint groupID;
+                    if (uint.TryParse(descriptionStrings[i][2].ToString(), out groupID))
+                    {
+                        actionGroupMemo[groupID] = descriptionStrings[i].Substring(4).Trim();
+                        descriptionStrings[i] = string.Empty;
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// Set the refresh rate (number of Update() calls per triggered update).
         /// The lower of the current data rate and the new data rate is used.
@@ -666,7 +878,7 @@ namespace JSI
             //  to -1 before the raycast starts failing.
             // vessel.pqsAltitude reports distance to the surface (effectively, altitudeTrue).
             RaycastHit sfc;
-            if (altitudeTrue < 5000 && Physics.Raycast(CoM, -up, out sfc, Mathf.Min(5000, (float)altitudeASL + 1000.0F), 1 << 15))
+            if (Physics.Raycast(CoM, -up, out sfc, (float)altitudeASL + 10000.0F, 1 << 15))
             {
                 slopeAngle = Vector3.Angle(up, sfc.normal);
                 //JUtil.LogMessage(this, "sfc.distance = {0}, vessel.heightFromTerrain = {1}", sfc.distance, vessel.heightFromTerrain);
@@ -737,9 +949,8 @@ namespace JSI
                 {
                     JUtil.LogErrorMessage(this, "FetchPerPartData(): vessel.part[{0}].Resources is null", thatPart.partInfo.title);
                 }
-                for (int resourceIndex = 0; resourceIndex < thatPart.Resources.Count; resourceIndex++)
+                foreach (PartResource resource in thatPart.Resources)
                 {
-                    var resource = thatPart.Resources[resourceIndex];
                     // This is redundant.
                     //resources.Add(resource);
 
@@ -764,6 +975,18 @@ namespace JSI
                     hottestPart = hottestPartMaxTemperature - hottestPartTemperature;
                 }
                 totalResourceMass += thatPart.GetResourceMass();
+
+                foreach (IScienceDataContainer container in thatPart.FindModulesImplementing<IScienceDataContainer>())
+                {
+                    foreach (ScienceData datapoint in container.GetData())
+                    {
+                        if (datapoint != null)
+                        {
+                            totalDataAmount += datapoint.dataAmount;
+                            totalExperimentCount += 1.0f;
+                        }
+                    }
+                }
             }
 
             totalShipWetMass = vessel.GetTotalMass();
@@ -900,17 +1123,11 @@ namespace JSI
                     surfaceRight = Vector3.Cross(surfaceForward, up);
                 }
 
-                if (FlightGlobals.ready)
+                // This happens if we update right away, before navBall has been fetched.
+                // Like, at load time.
+                if (navBall != null)
                 {
-					Vector3 rotationOffset = new Vector3(90f, 0f, 0f);
-					CelestialBody currentMainBody = FlightGlobals.currentMainBody;
-					Transform target = FlightGlobals.ActiveVessel.ReferenceTransform;
-					Quaternion offsetGymbal = Quaternion.Euler(rotationOffset);
-
-					AttitudeGymbal = offsetGymbal * Quaternion.Inverse(target.rotation);
-					RelativeGymbal = AttitudeGymbal * Quaternion.LookRotation(Vector3.ProjectOnPlane(currentMainBody.position + (Vector3d)currentMainBody.transform.up * currentMainBody.Radius - target.position, (target.position - currentMainBody.position).normalized).normalized, (target.position - currentMainBody.position).normalized);
-
-					rotationVesselSurface = Quaternion.Inverse(RelativeGymbal);
+                    rotationVesselSurface = Quaternion.Inverse(navBall.relativeGymbal);
                 }
                 else
                 {
@@ -942,7 +1159,7 @@ namespace JSI
                         lastRadius = vessel.orbit.PeR;
 
                         // First estimate
-                        double nextUt = vessel.orbit.GetNextTimeOfRadius(Planetarium.GetUniversalTime(), lastRadius);
+                        double nextUt = vessel.orbit.NextTimeOfRadius(Planetarium.GetUniversalTime(), lastRadius);
                         Vector3d pos = vessel.orbit.getPositionAtUT(nextUt);
                         estLandingLatitude = vessel.mainBody.GetLatitude(pos);
                         estLandingLongitude = vessel.mainBody.GetLongitude(pos);
@@ -971,7 +1188,7 @@ namespace JSI
                     else
                     {
                         double nextRadius = Math.Max(vessel.orbit.PeR, lastRadius);
-                        double nextUt = vessel.orbit.GetNextTimeOfRadius(Planetarium.GetUniversalTime(), nextRadius);
+                        double nextUt = vessel.orbit.NextTimeOfRadius(Planetarium.GetUniversalTime(), nextRadius);
                         Vector3d pos = vessel.orbit.getPositionAtUT(nextUt);
                         estLandingLatitude = vessel.mainBody.GetLatitude(pos);
                         estLandingLongitude = vessel.mainBody.GetLongitude(pos);
@@ -1211,7 +1428,7 @@ namespace JSI
             double impactTime = 0;
             try
             {
-                impactTime = orbit.GetNextTimeOfRadius(Planetarium.GetUniversalTime(), terrainRadius);
+                impactTime = orbit.NextTimeOfRadius(Planetarium.GetUniversalTime(), terrainRadius);
             }
             catch (ArgumentException)
             {
@@ -1301,7 +1518,6 @@ namespace JSI
                 // way, the next FixedUpdate will trigger another update after
                 // navBall is ready.
                 timeToUpdate = true;
-                InvalidateModuleLists();
                 UpdateVariables();
                 // Re-trigger the update for the next FixedUpdate.
                 timeToUpdate = true;

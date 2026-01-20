@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -79,6 +79,10 @@ namespace JSI
 
         private readonly Quaternion rotateNavBall = Quaternion.Euler(0.0f, 180.0f, 0.0f);
 
+        private NavBall stockNavBall;
+        private GameObject cameraBody;
+        private Camera ballCamera;
+
         private GameObject navBall;
         private GameObject overlay;
         private GameObject heading;
@@ -87,34 +91,23 @@ namespace JSI
         private float markerDepth;
         private float navballRadius;
 
-        struct Marker
-        {
-            public GameObject gameObject; // this is intended to mostly be temporary - all we really need here is a matrix
-            public Mesh mesh;
-            public Material material;
-            public bool visible;
-        }
-
         // Markers...
-        private Marker markerPrograde;
-        private Marker markerRetrograde;
-        private Marker markerManeuver;
-        private Marker markerManeuverMinus;
-        private Marker markerTarget;
-        private Marker markerTargetMinus;
-        private Marker markerNormal;
-        private Marker markerNormalMinus;
-        private Marker markerRadial;
-        private Marker markerRadialMinus;
-        private Marker markerDockingAlignment;
-        private Marker markerNavWaypoint;
+        private GameObject markerPrograde;
+        private GameObject markerRetrograde;
+        private GameObject markerManeuver;
+        private GameObject markerManeuverMinus;
+        private GameObject markerTarget;
+        private GameObject markerTargetMinus;
+        private GameObject markerNormal;
+        private GameObject markerNormalMinus;
+        private GameObject markerRadial;
+        private GameObject markerRadialMinus;
+        private GameObject markerDockingAlignment;
+        private GameObject markerNavWaypoint;
 
         // Misc...
         private bool startupComplete;
         private bool firstRenderComplete;
-
-        float cameraSpan;
-        float cameraSpanWidth;
 
         private void ConfigureElements(float screenWidth, float screenHeight)
         {
@@ -138,9 +131,10 @@ namespace JSI
 
             // Figure out how we have to manipulate the camera to get the
             // navball in the right place, and in the right size.
-            cameraSpan = navballRadius * screenHeight / navBallDiameter;
-            cameraSpanWidth = navballRadius * screenWidth / navBallDiameter;
+            float cameraSpan = navballRadius * screenHeight / navBallDiameter;
             float pixelSize = cameraSpan / (screenHeight * 0.5f);
+
+            ballCamera.orthographicSize = cameraSpan;
 
             float newXPos = navBallCenter.x - screenWidth * 0.5f;
             float newYPos = screenHeight * 0.5f - navBallCenter.y;
@@ -165,8 +159,7 @@ namespace JSI
                 overlay.layer = drawingLayer;
                 overlay.transform.position = new Vector3(0, 0, overlayDepth);
                 overlay.GetComponent<Renderer>().material = overlayMaterial;
-
-                overlay.SetActive(false);
+                overlay.transform.parent = cameraBody.transform;
             }
 
             if (!string.IsNullOrEmpty(headingBar))
@@ -179,11 +172,10 @@ namespace JSI
 
                 heading = JUtil.CreateSimplePlane("RPMPFDHeading" + internalProp.propID, new Vector2(headingBarPosition.z * pixelSize, headingBarPosition.w * pixelSize), new Rect(0.0f, 0.0f, 1.0f, 1.0f), drawingLayer);
                 heading.transform.position = new Vector3(hbXPos * pixelSize, hbYPos * pixelSize, headingAboveOverlay ? (overlayDepth - 0.1f) : (overlayDepth + 0.1f));
+                heading.transform.parent = cameraBody.transform;
                 Renderer hdgMatl = null;
                 heading.GetComponentCached<Renderer>(ref hdgMatl).material = headingMaterial;
                 hdgMatl.material.SetTextureScale("_MainTex", new Vector2(headingSpan, 1f));
-
-                heading.SetActive(false);
             }
 
             Texture2D gizmoTexture = JUtil.GetGizmoTexture();
@@ -216,32 +208,31 @@ namespace JSI
             {
                 firstRenderComplete = true;
                 ConfigureElements((float)screen.width, (float)screen.height);
+                ballCamera.aspect = aspect;
             }
 
             GL.Clear(true, true, backgroundColorValue);
 
-			RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
+            ballCamera.targetTexture = screen;
 
-			// Navball is rotated around the Y axis 180 degrees since the
-			// original implementation had the camera positioned differently.
-			// We still need MirrorX since KSP does something odd with the
-			// gimbal
-			navBall.transform.rotation = (rotateNavBall * MirrorX(comp.RelativeGymbal));
-            
+            // Navball is rotated around the Y axis 180 degrees since the
+            // original implementation had the camera positioned differently.
+            // We still need MirrorX since KSP does something odd with the
+            // gimbal
+            navBall.transform.rotation = (rotateNavBall * MirrorX(stockNavBall.relativeGymbal));
+
+            RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
             if (heading != null)
             {
                 heading.GetComponent<Renderer>().material.SetTextureOffset("_MainTex",
                     new Vector2(JUtil.DualLerp(0f, 1f, 0f, 360f, comp.RotationVesselSurface.eulerAngles.y) - headingSpan / 2f, 0));
             }
 
-            Quaternion gymbal = comp.AttitudeGymbal;
-
-            double speedInCurrentMode = 0;
+            Quaternion gymbal = stockNavBall.attitudeGymbal;
 
             if (FlightGlobals.speedDisplayMode == FlightGlobals.SpeedDisplayModes.Orbit)
             {
                 Vector3 velocityVesselOrbitUnit = comp.Prograde;
-                speedInCurrentMode = FlightGlobals.ship_obtSpeed;
                 Vector3 radialPlus = comp.RadialOut;
                 Vector3 normalPlus = comp.NormalPlus;
                 // stockNavBall.relativeGymbal * (stockNavBall.progradeVector.localRotation * stockNavBall.progradeVector.right == gymbal * velocityVesselOrbitUnit
@@ -256,39 +247,28 @@ namespace JSI
                 MoveMarker(markerRadial, radialPlus, gymbal);
                 MoveMarker(markerRadialMinus, -radialPlus, gymbal);
 
-                markerNormal.visible = true;
-                markerNormalMinus.visible = true;
-                markerRadial.visible = true;
-                markerRadialMinus.visible = true;
+                JUtil.ShowHide(true, markerNormal, markerNormalMinus, markerRadial, markerRadialMinus);
             }
             else if (FlightGlobals.speedDisplayMode == FlightGlobals.SpeedDisplayModes.Surface)
             {
                 Vector3 velocityVesselSurfaceUnit = vessel.srf_velocity.normalized;
-                speedInCurrentMode = FlightGlobals.ship_srfSpeed;
                 MoveMarker(markerPrograde, velocityVesselSurfaceUnit, gymbal);
                 MoveMarker(markerRetrograde, -velocityVesselSurfaceUnit, gymbal);
             }
             else // FlightGlobals.speedDisplayMode == FlightGlobals.SpeedDisplayModes.Target
             {
                 Vector3 targetDirection = FlightGlobals.ship_tgtVelocity.normalized;
-                speedInCurrentMode = FlightGlobals.ship_tgtSpeed;
 
                 MoveMarker(markerPrograde, targetDirection, gymbal);
                 MoveMarker(markerRetrograde, -targetDirection, gymbal);
             }
-
-            bool progradeVisible = speedInCurrentMode >= 0.05;
-            markerPrograde.visible = progradeVisible;
-            markerRetrograde.visible = progradeVisible;
 
             if (vessel.patchedConicSolver != null && vessel.patchedConicSolver.maneuverNodes.Count > 0)
             {
                 Vector3 burnVector = vessel.patchedConicSolver.maneuverNodes[0].GetBurnVector(vessel.orbit).normalized;
                 MoveMarker(markerManeuver, burnVector, gymbal);
                 MoveMarker(markerManeuverMinus, -burnVector, gymbal);
-
-                markerManeuver.visible = true;
-                markerManeuverMinus.visible = true;
+                JUtil.ShowHide(true, markerManeuver, markerManeuverMinus);
             }
 
             /*
@@ -344,66 +324,19 @@ namespace JSI
                         angle = -angle;
                     }
                     MoveMarker(markerDockingAlignment, targetOrientationVector, gymbal);
-                    markerDockingAlignment.gameObject.transform.Rotate(Vector3.up, -angle);
-                    markerDockingAlignment.visible = true;
+                    markerDockingAlignment.transform.Rotate(Vector3.up, -angle);
+                    JUtil.ShowHide(true, markerDockingAlignment);
                 }
-                markerTarget.visible = true;
-                markerTargetMinus.visible = true;
+                JUtil.ShowHide(true, markerTarget, markerTargetMinus);
             }
 
-            // I wonder if doing this as a command buffer might be more efficient?
-
-            GL.PushMatrix();
-            GL.LoadProjectionMatrix(Matrix4x4.Ortho(-cameraSpanWidth, cameraSpanWidth, -cameraSpan, cameraSpan, 0, 1.5f + navballRadius * 3));
-
-            var navballMeshFilter = navBall.GetComponent<MeshFilter>();
-            var navballRenderer = navBall.GetComponent<MeshRenderer>();
-            navballRenderer.material.SetPass(0);
-            Graphics.DrawMeshNow(navballMeshFilter.mesh, navBall.transform.localToWorldMatrix);
-
-            DrawMarker(markerPrograde);
-            DrawMarker(markerRetrograde);
-            DrawMarker(markerManeuver);
-            DrawMarker(markerManeuverMinus);
-            DrawMarker(markerTarget);
-            DrawMarker(markerTargetMinus);
-            DrawMarker(markerNormal);
-            DrawMarker(markerNormalMinus);
-            DrawMarker(markerRadial);
-            DrawMarker(markerRadialMinus);
-            DrawMarker(markerDockingAlignment);
-            DrawMarker(markerNavWaypoint);
-
-            markerPrograde.visible = false;
-            markerRetrograde.visible = false;
-            markerManeuver.visible = false;
-            markerManeuverMinus.visible = false;
-            markerTarget.visible = false;
-            markerTargetMinus.visible = false;
-            markerNormal.visible = false;
-            markerNormalMinus.visible = false;
-            markerRadial.visible = false;
-            markerRadialMinus.visible = false;
-            markerDockingAlignment.visible = false;
-            markerNavWaypoint.visible = false;
-
-            if (overlay != null)
-            {
-                var overlayMesh = overlay.GetComponent<MeshFilter>().mesh;
-                var overlayMaterial = overlay.GetComponent<MeshRenderer>().material;
-                overlayMaterial.SetPass(0);
-                Graphics.DrawMeshNow(overlayMesh, overlay.transform.localToWorldMatrix);
-            }
-
-            if (heading != null)
-            {
-                var headingMesh = heading.GetComponent<MeshFilter>().mesh;
-                var headingMaterial = heading.GetComponent<MeshRenderer>().material;
-                headingMaterial.SetPass(0);
-                Graphics.DrawMeshNow(headingMesh, heading.transform.localToWorldMatrix);
-            }
-
-            GL.PopMatrix();
+            JUtil.ShowHide(true,
+                cameraBody, navBall, overlay, heading, markerPrograde, markerRetrograde);
+            ballCamera.Render();
+            JUtil.ShowHide(false,
+                cameraBody, navBall, overlay, heading, markerPrograde, markerRetrograde,
+                markerManeuver, markerManeuverMinus, markerTarget, markerTargetMinus,
+                markerNormal, markerNormalMinus, markerRadial, markerRadialMinus, markerDockingAlignment, markerNavWaypoint);
 
             return true;
         }
@@ -417,12 +350,15 @@ namespace JSI
         }
 
         private readonly int opacityIndex = Shader.PropertyToID("_Opacity");
-        
-        private void MoveMarker(Marker marker, Vector3 position, Quaternion voodooGymbal)
+        private DefaultableDictionary<GameObject, Renderer> markerRenderer = new DefaultableDictionary<GameObject, Renderer>(null);
+        private void MoveMarker(GameObject marker, Vector3 position, Quaternion voodooGymbal)
         {
             Vector3 newPosition = ((voodooGymbal * position) * navballRadius) + navBallOrigin;
-            marker.material.SetFloat(opacityIndex, Mathf.Clamp01(newPosition.z + 0.5f));
-            marker.gameObject.transform.position = new Vector3(newPosition.x, newPosition.y, markerDepth);
+            Renderer r = markerRenderer[marker];
+            marker.GetComponentCached<Renderer>(ref r);
+            markerRenderer[marker] = r;
+            r.material.SetFloat(opacityIndex, Mathf.Clamp01(newPosition.z + 0.5f));
+            marker.transform.position = new Vector3(newPosition.x, newPosition.y, markerDepth);
         }
 
         private static Quaternion MirrorX(Quaternion input)
@@ -432,41 +368,23 @@ namespace JSI
             return new Quaternion(input.x, -input.y, -input.z, input.w);
         }
 
-        private static Marker BuildMarker(int iconX, int iconY, float markerSize, Texture gizmoTexture, Color nativeColor, int drawingLayer, int propID, Shader shader)
+        private static GameObject BuildMarker(int iconX, int iconY, float markerSize, Texture gizmoTexture, Color nativeColor, int drawingLayer, int propID, Shader shader)
         {
-            Marker marker = new Marker();
+            GameObject marker = JUtil.CreateSimplePlane("RPMPFDMarker" + iconX + iconY + propID, markerSize, drawingLayer);
 
-            marker.gameObject = JUtil.CreateSimplePlane("RPMPFDMarker" + iconX + iconY + propID, markerSize, drawingLayer);
+            Material material = new Material(shader);
+            material.mainTexture = gizmoTexture;
+            material.mainTextureScale = Vector2.one / 3f;
+            material.mainTextureOffset = new Vector2(iconX * (1f / 3f), iconY * (1f / 3f));
+            material.color = Color.white;
+            material.SetVector("_Color", nativeColor);
+            marker.GetComponent<Renderer>().material = material;
 
-            marker.mesh = marker.gameObject.GetComponent<MeshFilter>().sharedMesh;
+            marker.transform.position = Vector3.zero;
 
-            marker.material = new Material(shader);
-            marker.material.mainTexture = gizmoTexture;
-            marker.material.mainTextureScale = Vector2.one / 3f;
-            marker.material.mainTextureOffset = new Vector2(iconX * (1f / 3f), iconY * (1f / 3f));
-            marker.material.color = Color.white;
-            marker.material.SetVector("_Color", nativeColor);
-
-            marker.gameObject.transform.position = Vector3.zero;
-
-            marker.gameObject.SetActive(false);
-            marker.visible = false;
+            JUtil.ShowHide(false, marker);
 
             return marker;
-        }
-
-        private static void DestroyMarker(Marker marker)
-        {
-            UnityEngine.Object.Destroy(marker.mesh);
-        }
-
-        private static void DrawMarker(Marker marker)
-        {
-            if (marker.visible)
-            {
-                marker.material.SetPass(0);
-                Graphics.DrawMeshNow(marker.mesh, marker.gameObject.transform.localToWorldMatrix);
-            }
         }
 
         public void Start()
@@ -514,9 +432,35 @@ namespace JSI
 
                 Shader displayShader = JUtil.LoadInternalShader("RPM/DisplayShader");
 
+                try
+                {
+                    stockNavBall = UnityEngine.Object.FindObjectOfType<KSP.UI.Screens.Flight.NavBall>();
+                }
+                catch (Exception e)
+                {
+                    JUtil.LogErrorMessage(this, "Unable to fetch the NavBall object: {0}", e);
+                    // Set up a bogus one so there's no null derefs.
+                    stockNavBall = new NavBall();
+                }
+
                 // Non-moving parts...
+                cameraBody = new GameObject();
+                cameraBody.name = "RPMPFD" + cameraBody.GetInstanceID();
+                cameraBody.layer = drawingLayer;
 
                 Vector3 navBallPosition = new Vector3(0.0f, 0.0f, 1.5f);
+
+                ballCamera = cameraBody.AddComponent<Camera>();
+                ballCamera.enabled = false;
+                ballCamera.orthographic = true;
+                ballCamera.eventMask = 0;
+                ballCamera.farClipPlane = 3f;
+                ballCamera.orthographicSize = 1.0f;
+                ballCamera.cullingMask = 1 << drawingLayer;
+                ballCamera.clearFlags = CameraClearFlags.Depth;
+                ballCamera.transparencySortMode = TransparencySortMode.Orthographic;
+                ballCamera.transform.position = Vector3.zero;
+                ballCamera.transform.LookAt(navBallPosition, Vector3.up);
 
                 navBall = GameDatabase.Instance.GetModel(navBallModel.EnforceSlashes());
                 if (navBall == null)
@@ -529,6 +473,7 @@ namespace JSI
                 Destroy(navBall.GetComponent<Collider>());
                 navBall.name = "RPMNB" + navBall.GetInstanceID();
                 navBall.layer = drawingLayer;
+                navBall.transform.parent = cameraBody.transform;
                 navBall.transform.position = navBallPosition;
                 navBall.GetComponent<Renderer>().material.shader = displayShader;
                 Texture2D horizonTex = GameDatabase.Instance.GetTexture(horizonTexture.EnforceSlashes(), false);
@@ -542,8 +487,6 @@ namespace JSI
                 }
 
                 navBall.GetComponent<Renderer>().material.SetFloat("_Opacity", ballOpacity);
-                
-                navBall.SetActive(false);
 
                 startupComplete = true;
             }
@@ -562,20 +505,9 @@ namespace JSI
                 return;
             }
 
-            DestroyMarker(markerPrograde);
-            DestroyMarker(markerRetrograde);
-            DestroyMarker(markerManeuver);
-            DestroyMarker(markerManeuverMinus);
-            DestroyMarker(markerTarget);
-            DestroyMarker(markerTargetMinus);
-            DestroyMarker(markerNormal);
-            DestroyMarker(markerNormalMinus);
-            DestroyMarker(markerRadial);
-            DestroyMarker(markerRadialMinus);
-            DestroyMarker(markerDockingAlignment);
-            DestroyMarker(markerNavWaypoint);
-
-            JUtil.DisposeOfGameObjects(new GameObject[] { navBall, overlay, heading });
+            JUtil.DisposeOfGameObjects(new GameObject[] { navBall, overlay, heading, markerPrograde, markerRetrograde,
+                markerManeuver, markerManeuverMinus, markerTarget, markerTargetMinus, markerNormal, markerNormalMinus,
+                markerRadial, markerRadialMinus, markerDockingAlignment, markerNavWaypoint});
         }
     }
 }

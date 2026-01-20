@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -27,8 +27,6 @@ namespace JSI
 {
     public class JSIVariableAnimator : InternalModule
     {
-        [SerializeReference] ConfigNodeHolder moduleConfig;
-
         [KSPField]
         public int refreshRate = 10;
         private bool startupComplete;
@@ -50,12 +48,6 @@ namespace JSI
             return false;
         }
 
-        public override void OnLoad(ConfigNode node)
-        {
-            moduleConfig = ScriptableObject.CreateInstance<ConfigNodeHolder>();
-            moduleConfig.Node = node;
-        }
-
         public void Start()
         {
             if (HighLogic.LoadedSceneIsEditor)
@@ -65,42 +57,52 @@ namespace JSI
 
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
                 useNewMode = RPMGlobals.useNewVariableAnimator;
 
-                ConfigNode[] variableNodes = moduleConfig.Node.GetNodes("VARIABLESET");
-
-                for (int i = 0; i < variableNodes.Length; i++)
+                ConfigNode moduleConfig = null;
+                foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("PROP"))
                 {
-                    try
+                    if (node.GetValue("name") == internalProp.propName)
                     {
-                        if (useNewMode)
+
+                        moduleConfig = node.GetNodes("MODULE")[moduleID];
+                        ConfigNode[] variableNodes = moduleConfig.GetNodes("VARIABLESET");
+
+                        for (int i = 0; i < variableNodes.Length; i++)
                         {
-                            variableSets.Add(new VariableAnimationSet(variableNodes[i], internalProp, rpmComp, this));
+                            try
+                            {
+                                if (useNewMode)
+                                {
+                                    variableSets.Add(new VariableAnimationSet(variableNodes[i], internalProp, rpmComp, this));
+                                }
+                                else
+                                {
+                                    variableSets.Add(new VariableAnimationSet(variableNodes[i], internalProp, rpmComp));
+                                }
+                            }
+                            catch (ArgumentException e)
+                            {
+                                JUtil.LogMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propID);
+                            }
                         }
-                        else
-                        {
-                            variableSets.Add(new VariableAnimationSet(variableNodes[i], internalProp, rpmComp));
-                        }
-                    }
-                    catch (ArgumentException e)
-                    {
-                        JUtil.LogMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propID);
+                        break;
                     }
                 }
 
                 // Fallback: If there are no VARIABLESET blocks, we treat the module configuration itself as a variableset block.
-                if (variableSets.Count < 1)
+                if (variableSets.Count < 1 && moduleConfig != null)
                 {
                     try
                     {
                         if (useNewMode)
                         {
-                            variableSets.Add(new VariableAnimationSet(moduleConfig.Node, internalProp, rpmComp, this));
+                            variableSets.Add(new VariableAnimationSet(moduleConfig, internalProp, rpmComp, this));
                         }
                         else
                         {
-                            variableSets.Add(new VariableAnimationSet(moduleConfig.Node, internalProp, rpmComp));
+                            variableSets.Add(new VariableAnimationSet(moduleConfig, internalProp, rpmComp));
                         }
                     }
                     catch (ArgumentException e)
@@ -141,7 +143,6 @@ namespace JSI
         {
             if (useNewMode)
             {
-                enabled = false;
                 return;
             }
 
@@ -170,7 +171,7 @@ namespace JSI
                 muted = false;
             }
 
-            if ((!alwaysActive && !JUtil.RasterPropMonitorShouldUpdate(part)) || !UpdateCheck())
+            if ((!alwaysActive && !JUtil.RasterPropMonitorShouldUpdate(vessel)) || !UpdateCheck())
             {
                 return;
             }
@@ -332,6 +333,7 @@ namespace JSI
                     if (looping)
                     {
                         onAnim[animationName].wrapMode = WrapMode.Loop;
+                        onAnim.wrapMode = WrapMode.Loop;
                         onAnim[animationName].speed = animationSpeed;
                         mode = Mode.LoopingAnimation;
                     }
@@ -361,6 +363,7 @@ namespace JSI
                         if (looping)
                         {
                             offAnim[stopAnimationName].wrapMode = WrapMode.Loop;
+                            offAnim.wrapMode = WrapMode.Loop;
                             offAnim[stopAnimationName].speed = animationSpeed;
                             mode = Mode.LoopingAnimation;
                         }
@@ -383,13 +386,13 @@ namespace JSI
 
                 if (reverse)
                 {
-                    activeColor = JUtil.ParseColor32(node.GetValue("passiveColor"), rpmComp);
-                    passiveColor = JUtil.ParseColor32(node.GetValue("activeColor"), rpmComp);
+                    activeColor = JUtil.ParseColor32(node.GetValue("passiveColor"), thisProp.part, ref rpmComp);
+                    passiveColor = JUtil.ParseColor32(node.GetValue("activeColor"), thisProp.part, ref rpmComp);
                 }
                 else
                 {
-                    passiveColor = JUtil.ParseColor32(node.GetValue("passiveColor"), rpmComp);
-                    activeColor = JUtil.ParseColor32(node.GetValue("activeColor"), rpmComp);
+                    passiveColor = JUtil.ParseColor32(node.GetValue("passiveColor"), thisProp.part, ref rpmComp);
+                    activeColor = JUtil.ParseColor32(node.GetValue("activeColor"), thisProp.part, ref rpmComp);
                 }
                 Renderer colorShiftRenderer = thisProp.FindModelComponent<Renderer>(node.GetValue("coloredObject"));
                 affectedMaterial = colorShiftRenderer.material;
@@ -398,7 +401,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("localRotationStart") && node.HasValue("localRotationEnd"))
             {
-                controlledTransform = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim());
+                controlledTransform = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim());
                 initialRotation = controlledTransform.localRotation;
                 if (node.HasValue("longPath"))
                 {
@@ -431,7 +434,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("localTranslationStart") && node.HasValue("localTranslationEnd"))
             {
-                controlledTransform = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim());
+                controlledTransform = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim());
                 initialPosition = controlledTransform.localPosition;
                 if (reverse)
                 {
@@ -447,7 +450,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("localScaleStart") && node.HasValue("localScaleEnd"))
             {
-                controlledTransform = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim());
+                controlledTransform = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim());
                 initialScale = controlledTransform.localScale;
                 if (reverse)
                 {
@@ -463,7 +466,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("textureLayers") && node.HasValue("textureShiftStart") && node.HasValue("textureShiftEnd"))
             {
-                affectedMaterial = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
+                affectedMaterial = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
                 var textureLayers = node.GetValue("textureLayers").Split(',');
                 for (int i = 0; i < textureLayers.Length; ++i)
                 {
@@ -484,7 +487,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("textureLayers") && node.HasValue("textureScaleStart") && node.HasValue("textureScaleEnd"))
             {
-                affectedMaterial = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
+                affectedMaterial = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
                 var textureLayers = node.GetValue("textureLayers").Split(',');
                 for (int i = 0; i < textureLayers.Length; ++i)
                 {
@@ -593,7 +596,7 @@ namespace JSI
         internal void TearDown(RasterPropMonitorComputer rpmComp)
         {
             //--- new ways
-            if (onChangeDelegate != null && rpmComp != null)
+            if (onChangeDelegate != null)
             {
                 rpmComp.UnregisterVariableCallback(variable.variableName, onChangeDelegate);
             }
@@ -1015,6 +1018,7 @@ namespace JSI
                     if (looping)
                     {
                         onAnim[animationName].wrapMode = WrapMode.Loop;
+                        onAnim.wrapMode = WrapMode.Loop;
                         onAnim[animationName].speed = animationSpeed;
                         mode = Mode.LoopingAnimation;
                     }
@@ -1044,6 +1048,7 @@ namespace JSI
                         if (looping)
                         {
                             offAnim[stopAnimationName].wrapMode = WrapMode.Loop;
+                            offAnim.wrapMode = WrapMode.Loop;
                             offAnim[stopAnimationName].speed = animationSpeed;
                             mode = Mode.LoopingAnimation;
                         }
@@ -1066,13 +1071,13 @@ namespace JSI
 
                 if (reverse)
                 {
-                    activeColor = JUtil.ParseColor32(node.GetValue("passiveColor"), rpmComp);
-                    passiveColor = JUtil.ParseColor32(node.GetValue("activeColor"), rpmComp);
+                    activeColor = JUtil.ParseColor32(node.GetValue("passiveColor"), thisProp.part, ref rpmComp);
+                    passiveColor = JUtil.ParseColor32(node.GetValue("activeColor"), thisProp.part, ref rpmComp);
                 }
                 else
                 {
-                    passiveColor = JUtil.ParseColor32(node.GetValue("passiveColor"), rpmComp);
-                    activeColor = JUtil.ParseColor32(node.GetValue("activeColor"), rpmComp);
+                    passiveColor = JUtil.ParseColor32(node.GetValue("passiveColor"), thisProp.part, ref rpmComp);
+                    activeColor = JUtil.ParseColor32(node.GetValue("activeColor"), thisProp.part, ref rpmComp);
                 }
                 Renderer colorShiftRenderer = thisProp.FindModelComponent<Renderer>(node.GetValue("coloredObject"));
                 affectedMaterial = colorShiftRenderer.material;
@@ -1081,7 +1086,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("localRotationStart") && node.HasValue("localRotationEnd"))
             {
-                controlledTransform = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim());
+                controlledTransform = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim());
                 initialRotation = controlledTransform.localRotation;
                 if (node.HasValue("longPath"))
                 {
@@ -1114,7 +1119,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("localTranslationStart") && node.HasValue("localTranslationEnd"))
             {
-                controlledTransform = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim());
+                controlledTransform = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim());
                 initialPosition = controlledTransform.localPosition;
                 if (reverse)
                 {
@@ -1130,7 +1135,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("localScaleStart") && node.HasValue("localScaleEnd"))
             {
-                controlledTransform = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim());
+                controlledTransform = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim());
                 initialScale = controlledTransform.localScale;
                 if (reverse)
                 {
@@ -1146,7 +1151,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("textureLayers") && node.HasValue("textureShiftStart") && node.HasValue("textureShiftEnd"))
             {
-                affectedMaterial = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
+                affectedMaterial = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
                 var textureLayers = node.GetValue("textureLayers").Split(',');
                 for (int i = 0; i < textureLayers.Length; ++i)
                 {
@@ -1167,7 +1172,7 @@ namespace JSI
             }
             else if (node.HasValue("controlledTransform") && node.HasValue("textureLayers") && node.HasValue("textureScaleStart") && node.HasValue("textureScaleEnd"))
             {
-                affectedMaterial = JUtil.FindPropTransform(thisProp, node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
+                affectedMaterial = thisProp.FindModelTransform(node.GetValue("controlledTransform").Trim()).GetComponent<Renderer>().material;
                 var textureLayers = node.GetValue("textureLayers").Split(',');
                 for (int i = 0; i < textureLayers.Length; ++i)
                 {
@@ -1339,12 +1344,12 @@ namespace JSI
             // would make this fire every update instead of every fixed update
             yield return new WaitForFixedUpdate();
 
-            float updatedValue = (float)variable.rawValue;
+            float updatedValue = variable.rawValue;
             //JUtil.LogMessage(this, "OnCoroutine Update {0}", variable.variableName);
             while (Update(updatedValue))
             {
                 yield return new WaitForFixedUpdate();
-                updatedValue = (float)variable.rawValue;
+                updatedValue = variable.rawValue;
 
                 //JUtil.LogMessage(this, "OnCoroutine Update {0}", variable.variableName);
             }

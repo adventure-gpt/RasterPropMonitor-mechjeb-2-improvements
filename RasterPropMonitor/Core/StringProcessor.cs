@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -19,31 +19,28 @@
  * along with RasterPropMonitor.  If not, see <http://www.gnu.org/licenses/>.
  ****************************************************************************/
 using System;
-using UnityEngine.Profiling;
 
 namespace JSI
 {
     public class StringProcessorFormatter
     {
-        internal static readonly SIFormatProvider fp = new SIFormatProvider();
-
         // The formatString or plain text (if usesComp is false).
-        private readonly string formatString;
+        public readonly string formatString;
         // An array of source variables
         public readonly VariableOrNumber[] sourceVariables;
         // An array holding evaluants
         public readonly object[] sourceValues;
 
-        public bool IsConstant => sourceValues == null;
-
-        public string cachedResult;
+        // Indicates that the SPF uses RPMVesselComputer to process variables
+        public readonly bool usesComp;
 
         // TODO: Add support for multi-line processed support.
         public StringProcessorFormatter(string input, RasterPropMonitorComputer rpmComp)
         {
             if(string.IsNullOrEmpty(input))
             {
-                cachedResult = "";
+                formatString = "";
+                usesComp = false;
             }
             else if (input.IndexOf(JUtil.VariableListSeparator[0], StringComparison.Ordinal) >= 0)
             {
@@ -54,78 +51,86 @@ namespace JSI
                 }
                 else
                 {
-                    bool allVariablesConstant = true;
-
                     string[] sourceVarStrings = tokens[1].Split(JUtil.VariableSeparator, StringSplitOptions.RemoveEmptyEntries);
                     sourceVariables = new VariableOrNumber[sourceVarStrings.Length];
                     for (int i = 0; i < sourceVarStrings.Length; ++i )
                     {
                         sourceVariables[i] = rpmComp.InstantiateVariableOrNumber(sourceVarStrings[i]);
-                        allVariablesConstant = allVariablesConstant && sourceVariables[i].isConstant;
                     }
                     sourceValues = new object[sourceVariables.Length];
                     formatString = tokens[0].TrimEnd();
 
-                    for (int i = 0; i < sourceVariables.Length; ++i)
-                    {
-                        sourceValues[i] = sourceVariables[i].Get();
-                    }
-
-                    cachedResult = string.Format(fp, formatString, sourceValues);
-
-                    // if every variable is a constant, we can run the format once and cache the result
-                    if (allVariablesConstant)
-                    {
-                        sourceVariables = null;
-                        sourceValues = null;
-                    }
+                    usesComp = true;
                 }
             }
             else
             {
-                cachedResult = input.TrimEnd();
+                formatString = input.TrimEnd();
+                usesComp = false;
             }
         }
+    }
 
-        public bool UpdateValues()
+    public static class StringProcessor
+    {
+        private static readonly SIFormatProvider fp = new SIFormatProvider();
+
+        public static string ProcessString(StringProcessorFormatter formatter, RasterPropMonitorComputer rpmComp)
         {
-            if (sourceValues == null) return false;
-
-            bool anyChanged = false;
-            for (int i = 0; i < sourceVariables.Length; ++i)
+            if (formatter.usesComp)
             {
-                var sourceVariable = sourceVariables[i];
-                if (!sourceVariable.isConstant)
+                try
                 {
-                    if (sourceVariable.isNumeric)
+                    RPMVesselComputer comp = RPMVesselComputer.Instance(rpmComp.vessel);
+                    for (int i = 0; i < formatter.sourceVariables.Length; ++i)
                     {
-                        double newValue = sourceVariable.AsDouble();
-                        if (JUtil.ValueChanged((double)sourceValues[i], newValue))
-                        {
-                            anyChanged = true;
-                            sourceValues[i] = newValue;
-                        }
+                        formatter.sourceValues[i] = formatter.sourceVariables[i].Get();
                     }
-                    else
-                    {
-                        string newValue = (string)sourceVariable.Get();
-                        anyChanged = anyChanged || newValue != (string)sourceValues[i];
-                        sourceValues[i] = newValue;
-                    }
+
+                    return string.Format(fp, formatter.formatString, formatter.sourceValues);
+                }
+                catch(Exception e)
+                {
+                    JUtil.LogErrorMessage(formatter, "Exception trapped in ProcessString for {1}: {0}", e, formatter.formatString);
                 }
             }
 
-            return anyChanged;
+            return formatter.formatString;
         }
 
-        public string GetFormattedString()
+        public static string ProcessString(string input, RasterPropMonitorComputer rpmComp)
         {
-            if (UpdateValues())
+            try
             {
-                cachedResult = string.Format(fp, formatString, sourceValues);
+                if (input.IndexOf(JUtil.VariableListSeparator[0], StringComparison.Ordinal) >= 0)
+                {
+                    string[] tokens = input.Split(JUtil.VariableListSeparator, StringSplitOptions.RemoveEmptyEntries);
+                    if (tokens.Length != 2)
+                    {
+                        return "FORMAT ERROR";
+                    }
+                    else
+                    {
+                        RPMVesselComputer comp = RPMVesselComputer.Instance(rpmComp.vessel);
+                        string[] vars = tokens[1].Split(JUtil.VariableSeparator, StringSplitOptions.RemoveEmptyEntries);
+
+                        var variables = new object[vars.Length];
+                        for (int i = 0; i < vars.Length; i++)
+                        {
+                            variables[i] = rpmComp.ProcessVariable(vars[i].Trim(), comp);
+                        }
+                        string output = string.Format(fp, tokens[0], variables);
+                        return output.TrimEnd();
+                    }
+                }
+
+            }
+            catch (Exception e)
+            {
+                JUtil.LogErrorMessage(rpmComp, "Bad format on string {0}: {1}", input, e);
             }
 
-            return cachedResult;
+            return input.TrimEnd();
         }
     }
 }

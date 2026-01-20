@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -26,17 +26,19 @@ namespace JSI
     public class ResourceDataStorage
     {
         private readonly ResourceData[] rs;
+        private double lastcheck;
         private readonly Dictionary<string, ResourceData> nameResources = new Dictionary<string, ResourceData>();
         private readonly Dictionary<string, ResourceData> sysrResources = new Dictionary<string, ResourceData>();
-        private readonly List<string> sortedResourceNames;
+        private readonly string[] sortedResourceNames;
         private HashSet<Part> activeStageParts = new HashSet<Part>();
         private PartSet partSet = null;
+        private int numValidResourceNames = 0;
 
         private class ResourceComparer : IComparer<ResourceData>
         {
             public int Compare(ResourceData a, ResourceData b)
             {
-                return string.Compare(a.resourceDefinition.name, b.resourceDefinition.name);
+                return string.Compare(a.name, b.name);
             }
         }
 
@@ -50,14 +52,18 @@ namespace JSI
             int resourceCount = PartResourceLibrary.Instance.resourceDefinitions.Count;
 
             rs = new ResourceData[resourceCount];
-            sortedResourceNames = new List<string>(resourceCount);
+            sortedResourceNames = new string[resourceCount];
             int index = 0;
             foreach (PartResourceDefinition thatResource in PartResourceLibrary.Instance.resourceDefinitions)
             {
                 string nameSysr = thatResource.name.ToUpperInvariant().Replace(' ', '-').Replace('_', '-');
 
-                rs[index] = new ResourceData(thatResource);
-                
+                rs[index] = new ResourceData();
+                rs[index].name = thatResource.name;
+                rs[index].density = thatResource.density;
+                rs[index].resourceId = thatResource.id;
+                rs[index].flowMode = thatResource.resourceFlowMode;
+
                 nameResources.Add(thatResource.name, rs[index]);
                 sysrResources.Add(nameSysr, rs[index]);
                 ++index;
@@ -78,28 +84,32 @@ namespace JSI
         {
             for (int i = 0; i < rs.Length; ++i)
             {
-                ResourceData rd = rs[i];
-
-                rd.stage = 0.0f;
-                rd.stagemax = 0.0f;
-                rd.ispropellant = false;
+                rs[i].stage = 0.0f;
+                rs[i].stagemax = 0.0f;
+                rs[i].ispropellant = false;
 
                 double amount, maxAmount;
-                vessel.GetConnectedResourceTotals(rd.resourceDefinition.id, out amount, out maxAmount);
+                vessel.GetConnectedResourceTotals(rs[i].resourceId, out amount, out maxAmount);
 
-                rd.current = (float)amount;
-                rd.max = (float)maxAmount;
-                if (IsFreeFlow(rd.resourceDefinition.resourceFlowMode))
+                rs[i].current = (float)amount;
+                rs[i].max = (float)maxAmount;
+                if (IsFreeFlow(rs[i].flowMode))
                 {
-                    rd.stage = (float)amount;
-                    rd.stagemax = (float)maxAmount;
+                    rs[i].stage = (float)amount;
+                    rs[i].stagemax = (float)maxAmount;
                 }
             }
         }
 
-        public void EndLoop(double dt)
+        public void EndLoop(double time)
         {
-            sortedResourceNames.Clear();
+            float invDeltaT = (float)(1.0 / (time - lastcheck));
+            for (int i = 0; i < rs.Length; ++i)
+            {
+                rs[i].delta = (rs[i].previous - rs[i].current) * invDeltaT;
+                rs[i].previous = rs[i].current;
+            }
+            lastcheck = time;
 
             if (stagePartsChanged)
             {
@@ -114,26 +124,22 @@ namespace JSI
                 stagePartsChanged = false;
             }
 
-            float invDeltaT = (float)(1.0 / dt);
+            numValidResourceNames = 0;
             for (int i = 0; i < rs.Length; ++i)
             {
-                ResourceData rd = rs[i];
-
-                rd.delta = (rd.previous - rd.current) * invDeltaT;
-                rd.previous = rd.current;
-
-                if (rd.max > 0.0)
+                if (rs[i].max > 0.0)
                 {
-                    sortedResourceNames.Add(rd.resourceDefinition.name);
+                    sortedResourceNames[numValidResourceNames] = rs[i].name;
+                    ++numValidResourceNames;
 
                     // If the resource can flow anywhere, we already have the stage
                     // values listed here.
-                    if (rd.stagemax == 0.0)
+                    if (rs[i].stagemax == 0.0)
                     {
                         double amount, maxAmount;
-                        partSet.GetConnectedResourceTotals(rd.resourceDefinition.id, out amount, out maxAmount, true);
-                        rd.stagemax = (float)maxAmount;
-                        rd.stage = (float)amount;
+                        partSet.GetConnectedResourceTotals(rs[i].resourceId, out amount, out maxAmount, true);
+                        rs[i].stagemax = (float)maxAmount;
+                        rs[i].stage = (float)amount;
                     }
                 }
             }
@@ -141,8 +147,17 @@ namespace JSI
 
         public string GetActiveResourceByIndex(int index)
         {
-            return (index < sortedResourceNames.Count) ? sortedResourceNames[index] : string.Empty;
+            return (index < numValidResourceNames) ? sortedResourceNames[index] : string.Empty;
         }
+        //public void DumpData()
+        //{
+        //    JUtil.LogMessage(this, "Resource data update:");
+        //    for (int i = 0; i < rs.Length; ++i)
+        //    {
+        //        JUtil.LogMessage(this, "{0}: C {1:0.0} / {2:0.0}; T {3:0.0} / {4:0.0}; R {5:0.00}",
+        //            rs[i].name, rs[i].stage, rs[i].current, rs[i].stagemax, rs[i].max, rs[i].delta);
+        //    }
+        //}
 
         public void MarkActiveStage(PartSet ps)
         {
@@ -157,138 +172,226 @@ namespace JSI
             r.ispropellant = true;
         }
 
+        public void GetAvailableResourceNames(ref string[] result)
+        {
+            int requiredLength = 0;
+            for (int i = 0; i < rs.Length; ++i)
+            {
+                if (rs[i].max > 0.0)
+                {
+                    requiredLength++;
+                }
+            }
+
+            if (result == null || result.Length != requiredLength)
+            {
+                Array.Resize(ref result, requiredLength);
+            }
+
+            int currentIndex = 0;
+            for (int i = 0; i < rs.Length; ++i)
+            {
+                if (rs[i].max > 0.0)
+                {
+                    result[currentIndex] = rs[i].name;
+                    ++currentIndex;
+                }
+            }
+        }
 
         public double PropellantMass(bool stage)
         {
             double mass = 0.0;
             for (int i = 0; i < rs.Length; ++i)
             {
-                ResourceData rd = rs[i];
-
-                if (rd.ispropellant)
+                if (rs[i].ispropellant)
                 {
-                    mass += rd.resourceDefinition.density * ((stage) ? rd.stage : rd.current);
+                    mass += rs[i].density * ((stage) ? rs[i].stage : rs[i].current);
                 }
             }
             return mass;
         }
 
-        public enum ResourceProperty
+        private static readonly string[] keywords =
         {
-            VAL,
-            DENSITY,
-            DELTA,
-            DELTAINV,
-            MAXMASS,
-            MASS,
-            MAX,
-            PERCENT,
-            DEPLETED
-        }
+            "VAL",
+            "DENSITY",
+            "DELTA",
+            "DELTAINV",
+            "MAXMASS",
+            "MASS",
+            "MAX",
+            "PERCENT",
+            "DEPLETED"
+        };
 
-        /// <summary>
-        /// Given a string in the form XXXYYYZZZ where YYY may be "STAGE" or null, and ZZZ is one of the keywords above, sets the valueType to the keyword, sets the stage param to whether "STAGE" was present, returns XXX
-        /// </summary>
-        /// <param name="resourceQuery"></param>
-        /// <param name="valueType"></param>
-        /// <param name="stage"></param>
-        public static string ParseResourceQuery(string resourceQuery, out ResourceProperty valueType, out bool stage)
+        public object ListElement(string resourceQuery)
         {
-            valueType = ResourceProperty.VAL;
-            stage = false;
-
-            foreach (var propertyType in TEnum.GetValues<ResourceProperty>())
+            object v = 0.0;
+            try
             {
-                var propertyName = propertyType.ToString();
-                if (resourceQuery.EndsWith(propertyName))
+                int i = 0;
+                for (; i < keywords.Length; ++i)
                 {
-                    valueType = propertyType;
-                    resourceQuery = resourceQuery.Substring(0, resourceQuery.Length - propertyName.Length);
-                    break;
-                }
-            }
-
-            if (resourceQuery.EndsWith("STAGE"))
-            {
-                stage = true;
-                resourceQuery = resourceQuery.Substring(0, resourceQuery.Length - "STAGE".Length);
-            }
-
-            return resourceQuery;
-        }
-
-        public double ListSYSElement(string resourceName, ResourceProperty valueType, bool stage)
-        {
-            if (sysrResources.TryGetValue(resourceName, out var resource))
-            {
-                return resource.GetProperty(valueType, stage);
-            }
-            else
-            {
-                JUtil.LogErrorMessage(this, "ListElement({0}) resource not found", resourceName);
-                return double.NaN;
-            }
-        }
-
-        public double ListElement(string resourceName, ResourceProperty valueType, bool stage)
-        {
-            if (nameResources.TryGetValue(resourceName, out var resource))
-            {
-                return resource.GetProperty(valueType, stage);
-            }
-            else
-            {
-                JUtil.LogErrorMessage(this, "Error finding {0}-{2}", resourceName, valueType);
-                return 0;
-            }
-        }
-
-        private ResourceData GetPropellantResource(uint propellantIndex)
-        {
-            uint currentPropellantIndex = 0;
-
-            for (int resourceIndex = 0; resourceIndex < sortedResourceNames.Count; ++resourceIndex)
-            {
-                if (nameResources.TryGetValue(sortedResourceNames[resourceIndex], out var resource))
-                {
-                    if (resource.ispropellant)
+                    if (resourceQuery.EndsWith(keywords[i], StringComparison.Ordinal))
                     {
-                        if (currentPropellantIndex == propellantIndex)
+                        break;
+                    }
+                }
+                int substringLength = resourceQuery.Length - "SYSR_".Length;
+                string valueType;
+                if (i == keywords.Length)
+                {
+                    valueType = "VAL";
+                }
+                else
+                {
+                    substringLength -= keywords[i].Length;
+                    valueType = keywords[i];
+                }
+
+                string resourceName = resourceQuery.Substring("SYSR_".Length, substringLength);
+                bool stage = false;
+                if (resourceName.EndsWith("STAGE"))
+                {
+                    stage = true;
+                    resourceName = resourceName.Substring(0, resourceName.Length - "STAGE".Length);
+                }
+
+                ResourceData resource = sysrResources[resourceName];
+                switch (valueType)
+                {
+                    case "":
+                    case "VAL":
+                        v = stage ? resource.stage : resource.current;
+                        break;
+                    case "DENSITY":
+                        v = resource.density;
+                        break;
+                    case "DELTA":
+                        v = resource.delta;
+                        break;
+                    case "DELTAINV":
+                        v = -resource.delta;
+                        break;
+                    case "MASS":
+                        v = resource.density * (stage ? resource.stage : resource.current);
+                        break;
+                    case "MAXMASS":
+                        v = resource.density * (stage ? resource.stagemax : resource.max);
+                        break;
+                    case "MAX":
+                        v = stage ? resource.stagemax : resource.max;
+                        break;
+                    case "PERCENT":
+                        if (stage)
                         {
-                            return resource;
+                            v = resource.stagemax > 0 ? resource.stage / resource.stagemax : 0d;
                         }
                         else
                         {
-                            ++currentPropellantIndex;
+                            v = resource.max > 0 ? resource.current / resource.max : 0d;
                         }
-                    }
+                        break;
+                    case "DEPLETED":
+                        if (stage)
+                        {
+                            bool available = (resource.stagemax > 0.0f && resource.stage < 0.01f);
+                            v = available.GetHashCode();
+                        }
+                        else
+                        {
+                            bool available = (resource.max > 0.0f && resource.current < 0.01f);
+                            v = available.GetHashCode();
+                        }
+                        break;
+                }
+
+            }
+            catch (Exception e)
+            {
+                JUtil.LogErrorMessage(this, "ListElement({1}) threw trapped exception {0}", e, resourceQuery);
+                v = null;
+            }
+            return v;
+        }
+
+        public object ListElement(string resourceName, string valueType, bool stage)
+        {
+            double v = 0.0;
+
+            try
+            {
+                ResourceData resource = nameResources[resourceName];
+
+                switch (valueType)
+                {
+                    case "":
+                    case "VAL":
+                        v = stage ? resource.stage : resource.current;
+                        break;
+                    case "DENSITY":
+                        v = resource.density;
+                        break;
+                    case "DELTA":
+                        v = resource.delta;
+                        break;
+                    case "DELTAINV":
+                        v = -resource.delta;
+                        break;
+                    case "MASS":
+                        v = resource.density * (stage ? resource.stage : resource.current);
+                        break;
+                    case "MAXMASS":
+                        v = resource.density * (stage ? resource.stagemax : resource.max);
+                        break;
+                    case "MAX":
+                        v = stage ? resource.stagemax : resource.max;
+                        break;
+                    case "PERCENT":
+                        if (stage)
+                        {
+                            v = resource.stagemax > 0 ? resource.stage / resource.stagemax : 0d;
+                        }
+                        else
+                        {
+                            v = resource.max > 0 ? resource.current / resource.max : 0d;
+                        }
+                        break;
                 }
             }
+            catch (Exception e)
+            {
+                JUtil.LogErrorMessage(this, "Error finding {0}-{2}: {1}", resourceName, e, valueType);
+            }
 
-            return null;
+            return v;
         }
 
-        public double GetPropellantResourceValue(uint propellantIndex, ResourceProperty valueType, bool stage)
-        {
-            ResourceData rd = GetPropellantResource(propellantIndex);
+        //public void Add(PartResource resource)
+        //{
+        //    try
+        //    {
+        //        ResourceData res = nameResources[resource.info.name];
+        //        res.current += (float)resource.amount;
+        //        res.max += (float)resource.maxAmount;
 
-            return rd == null ? 0 : rd.GetProperty(valueType, stage);
-        }
-
-        public string GetPropellantResourceName(uint propellantIndex)
-        {
-            ResourceData rd = GetPropellantResource(propellantIndex);
-            return rd == null ? "" : rd.resourceDefinition.name;
-        }
+        //        var flowmode = resource.info.resourceFlowMode;
+        //        if (IsFreeFlow(flowmode))
+        //        {
+        //            res.stage += (float)resource.amount;
+        //            res.stagemax += (float)resource.maxAmount;
+        //        }
+        //    }
+        //    catch (Exception e)
+        //    {
+        //        JUtil.LogErrorMessage(this, "Error adding {0}: {1}", resource.info.name, e);
+        //    }
+        //}
 
         private class ResourceData
         {
-            public ResourceData(PartResourceDefinition resourceDefinition)
-            {
-                this.resourceDefinition = resourceDefinition;
-            }
-
-            public PartResourceDefinition resourceDefinition;
+            public string name;
 
             public float current;
             public float max;
@@ -297,41 +400,13 @@ namespace JSI
             public float stage;
             public float stagemax;
 
+            public float density;
             public float delta;
 
+            public int resourceId;
+            public ResourceFlowMode flowMode;
+
             public bool ispropellant;
-
-            internal float GetProperty(ResourceProperty valueType, bool currentStage)
-            {
-                switch (valueType)
-                {
-                    case ResourceProperty.VAL:
-                        return currentStage ? stage : current;
-                    case ResourceProperty.DENSITY:
-                        return resourceDefinition.density;
-                    case ResourceProperty.DELTA:
-                        return delta;
-                    case ResourceProperty.DELTAINV:
-                        return -delta;
-                    case ResourceProperty.MASS:
-                        return resourceDefinition.density * (currentStage ? stage : current);
-                    case ResourceProperty.MAXMASS:
-                        return resourceDefinition.density * (currentStage ? stagemax : max);
-                    case ResourceProperty.MAX:
-                        return currentStage ? stagemax : max;
-                    case ResourceProperty.PERCENT:
-                        if (currentStage)
-                        {
-                            return stagemax > 0 ? stage / stagemax : 0;
-                        }
-                        else
-                        {
-                            return max > 0 ? current / max : 0;
-                        }
-                }
-
-                return 0;
-            }
         }
     }
 }

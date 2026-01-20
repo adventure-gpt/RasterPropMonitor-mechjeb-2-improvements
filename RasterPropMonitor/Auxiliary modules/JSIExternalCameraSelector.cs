@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -46,19 +46,30 @@ namespace JSI
         [UI_Toggle(disabledText = "off", enabledText = "on")]
         [KSPField(guiActiveEditor = true, guiName = "FOV marker ", isPersistant = true)]
         public bool showCones = true;
-
-        [KSPField]
-        public float cameraFoVMax = 60;
-
-        [KSPField]
-        public float cameraFoVMin = 5;
-
+        
         // The rest of it
         private GameObject lightCone;
         private LineRenderer lightConeRenderer;
-		private static Material lightConeMaterial;
+        // Lazy initialization to avoid static constructor running before shaders are loaded
+        private static Material _lightConeMaterial;
+        private static Material lightConeMaterial
+        {
+            get
+            {
+                if (_lightConeMaterial == null)
+                {
+                    Shader shader = Shader.Find("Particles/Additive");
+                    if (shader != null)
+                    {
+                        _lightConeMaterial = new Material(shader);
+                    }
+                }
+                return _lightConeMaterial;
+            }
+        }
         private Transform actualCamera;
         private const float endSpan = 15f;
+        private const float fovAngle = 60f;
 
         [KSPEvent(guiActive = true, guiActiveEditor = true, guiName = "ID +")]
         public void IdPlus()
@@ -96,18 +107,7 @@ namespace JSI
             }
         }
 
-		public override void OnAwake()
-		{
-			base.OnAwake();
-
-			// initialize the static material if it hasn't been loaded yet.  this clearly isn't threadsafe...
-			if (lightConeMaterial == null)
-			{
-				lightConeMaterial = new Material(Shader.Find("Legacy Shaders/Particles/Additive"));
-			}
-		}
-
-		public override void OnStart(PartModule.StartState state)
+        public override void OnStart(PartModule.StartState state)
         {
             if (string.IsNullOrEmpty(cameraContainer))
             {
@@ -117,13 +117,12 @@ namespace JSI
 
             // Create the camera transform
             Transform containingTransform = part.FindModelTransform(cameraContainer);
-
             if (containingTransform == null)
             {
-                JUtil.LogErrorMessage(this, "No transform named {0} on part {1}", cameraContainer, part.partInfo.name);
+                JUtil.LogErrorMessage(this, "Could not find cameraContainer transform '{0}' in part '{1}'", cameraContainer, part.name);
                 return;
             }
-
+            
             if (containingTransform.childCount > 0)
             {
                 actualCamera = containingTransform.GetChild(0);
@@ -133,8 +132,9 @@ namespace JSI
                 actualCamera = new GameObject().transform;
                 actualCamera.parent = containingTransform;
             }
-            actualCamera.position = containingTransform.position;
-            actualCamera.rotation = containingTransform.rotation;
+            // Use local coordinates so camera stays relative to parent when vessel moves
+            actualCamera.localPosition = Vector3.zero;
+            actualCamera.localRotation = Quaternion.identity;
 
             if (rotateCamera != Vector3.zero)
             {
@@ -238,7 +238,7 @@ namespace JSI
                     Vector3 origin = actualCamera.transform.TransformPoint(Vector3.zero);
                     Vector3 direction = actualCamera.transform.TransformDirection(Vector3.forward);
                     lightConeRenderer.SetPosition(0, origin);
-                    lightConeRenderer.SetPosition(1, origin + direction * (endSpan / 2 / Mathf.Tan(Mathf.Deg2Rad * cameraFoVMax / 2)));
+                    lightConeRenderer.SetPosition(1, origin + direction * (endSpan / 2 / Mathf.Tan(Mathf.Deg2Rad * fovAngle / 2)));
                 }
             }
         }

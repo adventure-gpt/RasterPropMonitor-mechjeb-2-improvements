@@ -22,7 +22,6 @@ using KSP.UI.Screens;
 using System;
 using System.Collections.Generic;
 using System.Text;
-using UnityEngine;
 
 namespace JSI
 {
@@ -42,7 +41,6 @@ namespace JSI
         private readonly static List<string> emptyIgnoreList = new List<string>();
 
         //--- Docking Nodes
-        internal List<ModuleDockingNode> availableDockingNodes = new List<ModuleDockingNode>();
         internal ModuleDockingNode mainDockingNode;
         /// <summary>
         /// Contains the state of the mainDockingNode in a queriable numeric
@@ -59,13 +57,8 @@ namespace JSI
         };
 
         //--- Engines
-        internal struct EngineInfo
-        {
-            public ModuleEngines engineModule;
-            public float maxIsp;
-        }
         internal List<JSIThrustReverser> availableThrustReverser = new List<JSIThrustReverser>();
-        internal List<EngineInfo> availableEngines = new List<EngineInfo>();
+        internal List<ModuleEngines> availableEngines = new List<ModuleEngines>();
         internal List<MultiModeEngine> availableMultiModeEngines = new List<MultiModeEngine>();
         internal float totalCurrentThrust;
         internal float totalLimitedMaximumThrust;
@@ -99,7 +92,6 @@ namespace JSI
         internal List<PartModule> availableRealChutes = new List<PartModule>();
         internal bool anyParachutesDeployed;
         internal bool allParachutesSafe;
-        internal bool anyParachutesArmed;
 
         //--- Power production
         internal List<ModuleAlternator> availableAlternators = new List<ModuleAlternator>();
@@ -133,29 +125,6 @@ namespace JSI
         internal int gearState;
         internal float gearPosition;
 
-        //--- Antennas
-        internal List<ModuleDeployableAntenna> availableAntennas = new List<ModuleDeployableAntenna>();
-        internal bool antennasDeployed; // true if at least one deployable antenna is deployed
-        internal bool antennasDeployable; // true if at least one deployable antenna can be deployed
-        internal bool antennasDeployedOrDeploying; // true if at least one deployable antenna is deployed or deploying
-        internal bool antennasBroken; // true if at least one antenna is broken
-        internal List<ModuleDataTransmitter> availableTransmitters = new List<ModuleDataTransmitter>();
-        internal bool antennasReady; // true if at least one non-internal antenna is ready to use (not broken and nondeployable or deployed)
-
-        // --- Radiators
-        internal List<ModuleDeployableRadiator> availableDeployableRadiators = new List<ModuleDeployableRadiator>();
-        internal List<ModuleActiveRadiator> availableActiveRadiators = new List<ModuleActiveRadiator>();
-        internal bool radiatorsDeployed;
-        internal bool radiatorsDeployable;
-        internal bool radiatorsDeployedOrDeploying;
-        internal bool radiatorsBroken;
-        internal bool radiatorsActive;
-
-        // --- Science
-        internal List<IScienceDataContainer> availableScienceContainers = new List<IScienceDataContainer>();
-        internal float totalDataAmount;
-        internal float totalExperimentCount;
-
         #region List Management
         /// <summary>
         /// Flag the lists as invalid due to craft changes / destruction.
@@ -164,7 +133,6 @@ namespace JSI
         {
             listsInvalid = true;
 
-            availableDockingNodes.Clear();
             availableAblators.Clear();
             availableAirIntakes.Clear();
             availableAlternators.Clear();
@@ -183,11 +151,6 @@ namespace JSI
             availableThrustReverser.Clear();
             availableWheelBrakes.Clear();
             availableWheelDamage.Clear();
-            availableAntennas.Clear();
-            availableTransmitters.Clear();
-            availableDeployableRadiators.Clear();
-            availableActiveRadiators.Clear();
-            availableScienceContainers.Clear();
 
             mainDockingNode = null;
         }
@@ -218,12 +181,9 @@ namespace JSI
                         {
                             if (module.isEnabled && !modulesToIgnore.Contains(module.moduleName))
                             {
-                                if (module is ModuleEngines engine)
+                                if (module is ModuleEngines)
                                 {
-                                    EngineInfo engineInfo;
-                                    engineInfo.engineModule = engine;
-                                    engine.atmosphereCurve.FindMinMaxValue(out float minIsp, out engineInfo.maxIsp);
-                                    availableEngines.Add(engineInfo);
+                                    availableEngines.Add(module as ModuleEngines);
                                 }
                                 else if (module is MultiModeEngine)
                                 {
@@ -276,12 +236,13 @@ namespace JSI
                                 else if (module is ModuleResourceConverter)
                                 {
                                     ModuleResourceConverter gen = module as ModuleResourceConverter;
-                                    foreach (var output in gen.outputList)
+                                    ConversionRecipe recipe = gen.Recipe;
+                                    for (int i = 0; i < recipe.Outputs.Count; ++i)
                                     {
-                                        if (output.ResourceName == "ElectricCharge")
+                                        if (recipe.Outputs[i].ResourceName == "ElectricCharge")
                                         {
                                             availableFuelCells.Add(gen);
-                                            availableFuelCellOutput.Add((float)output.Ratio);
+                                            availableFuelCellOutput.Add((float)recipe.Outputs[i].Ratio);
                                             break;
                                         }
                                     }
@@ -322,30 +283,6 @@ namespace JSI
                                 else if (JSIParachute.rcFound && module.GetType() == JSIParachute.rcModuleRealChute)
                                 {
                                     availableRealChutes.Add(module);
-                                }
-                                else if (module is ModuleDeployableAntenna)
-                                {
-                                    availableAntennas.Add(module as ModuleDeployableAntenna);
-                                }
-                                else if (module is ModuleDataTransmitter)
-                                {
-                                    availableTransmitters.Add(module as ModuleDataTransmitter);
-                                }
-                                else if (module is ModuleDeployableRadiator)
-                                {
-                                    availableDeployableRadiators.Add(module as ModuleDeployableRadiator);
-                                }
-                                else if (module is ModuleActiveRadiator)
-                                {
-                                    availableActiveRadiators.Add(module as ModuleActiveRadiator);
-                                }
-                                else if (module is IScienceDataContainer scienceDataContainer)
-                                {
-                                    availableScienceContainers.Add(scienceDataContainer);
-                                }
-                                else if (module is ModuleDockingNode dockingNode)
-                                {
-                                    availableDockingNodes.Add(dockingNode);
                                 }
                             }
                         }
@@ -502,68 +439,6 @@ namespace JSI
             }
         }
 
-        private void FetchAntennaData()
-        {
-            antennasBroken = false;
-            antennasDeployable = false;
-            antennasDeployed = false;
-            antennasDeployedOrDeploying = false;
-            antennasReady = false;
-
-            foreach (var antenna in availableAntennas)
-            {
-                antennasDeployedOrDeploying |= antenna.useAnimation && (antenna.deployState == ModuleDeployablePart.DeployState.EXTENDED || antenna.deployState == ModuleDeployablePart.DeployState.EXTENDING);
-                antennasDeployable |= antenna.useAnimation && antenna.deployState == ModuleDeployablePart.DeployState.RETRACTED;
-                antennasDeployed |= antenna.useAnimation && antenna.deployState == ModuleDeployablePart.DeployState.EXTENDED;
-                antennasBroken |= antenna.deployState == ModuleDeployablePart.DeployState.BROKEN;
-            }
-
-            foreach (var transmitter in availableTransmitters)
-            {
-                antennasReady |= (transmitter.antennaType != AntennaType.INTERNAL && transmitter.CanComm());
-            }
-        }
-
-        private void FetchRadiatorData()
-        {
-            radiatorsBroken = false;
-            radiatorsDeployable = false;
-            radiatorsDeployed = false;
-            radiatorsDeployedOrDeploying = false;
-            radiatorsActive = false;
-
-            foreach (var radiator in availableDeployableRadiators)
-            {
-                radiatorsDeployedOrDeploying |= radiator.useAnimation && (radiator.deployState == ModuleDeployablePart.DeployState.EXTENDED || radiator.deployState == ModuleDeployablePart.DeployState.EXTENDING);
-                radiatorsDeployable |= radiator.useAnimation && radiator.deployState == ModuleDeployablePart.DeployState.RETRACTED;
-                radiatorsDeployed |= radiator.useAnimation && radiator.deployState == ModuleDeployablePart.DeployState.EXTENDED;
-                radiatorsBroken |= radiator.deployState == ModuleDeployablePart.DeployState.BROKEN;
-            }
-
-            foreach (var radiator in availableActiveRadiators)
-            {
-                radiatorsActive |= radiator.IsCooling;
-            }
-        }
-
-        private void FetchScienceData()
-        {
-            foreach (IScienceDataContainer container in availableScienceContainers)
-            {
-                if (container.GetScienceCount() > 0)
-                {
-                    foreach (ScienceData datapoint in container.GetData())
-                    {
-                        if (datapoint != null)
-                        {
-                            totalDataAmount += datapoint.dataAmount;
-                            totalExperimentCount += 1.0f;
-                        }
-                    }
-                }
-            }
-        }
-
         /// <summary>
         /// Convert the textual docking node state into an enum, so we don't
         /// need to do string compares.
@@ -602,21 +477,44 @@ namespace JSI
             mainDockingNodeState = DockingNodeState.UNKNOWN;
 
             Part referencePart = vessel.GetReferenceTransformPart();
-            Part currentPart = JUtil.DeduceCurrentPart(vessel);
-            uint launchId = currentPart ? currentPart.launchID : 0;
-            foreach (var dockingNode in availableDockingNodes)
+            if (referencePart != null)
             {
-                // if we find a docking node on the reference part, use it and we're done
-                if (dockingNode.part == referencePart)
+                ModuleDockingNode node = referencePart.FindModuleImplementing<ModuleDockingNode>();
+                if (node != null)
                 {
-                    mainDockingNode = dockingNode;
-                    break;
+                    // The current reference part is a docking node, so we
+                    // choose it.
+                    mainDockingNode = node;
+                }
+            }
+
+            if (mainDockingNode == null)
+            {
+                uint launchId;
+                Part currentPart = JUtil.DeduceCurrentPart(vessel);
+                if (currentPart == null)
+                {
+                    launchId = 0u;
+                }
+                else
+                {
+                    launchId = currentPart.launchID;
                 }
 
-                // otherwise find any docking node from the same launch
-                if (dockingNode.part.launchID == launchId)
+                for (int i = 0; i < vessel.parts.Count; ++i)
                 {
-                    mainDockingNode = dockingNode;
+                    if (vessel.parts[i].launchID == launchId)
+                    {
+                        ModuleDockingNode node = vessel.parts[i].FindModuleImplementing<ModuleDockingNode>();
+                        if (node != null)
+                        {
+                            // We found a docking node that has the same launch
+                            // ID as the current IVA part, so we consider it our
+                            // main docking node.
+                            mainDockingNode = node;
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -666,46 +564,40 @@ namespace JSI
             hottestEngineTemperature = hottestEngineMaxTemperature = 0.0f;
             anyEnginesOverheating = anyEnginesFlameout = anyEnginesEnabled = false;
 
-            activeEngineCount = 0;
-
             float averageIspContribution = 0.0f;
             float maxIspContribution = 0.0f;
-
-            Part lastPart = null;
+            List<Part> visitedParts = new List<Part>();
 
             bool requestReset = false;
             for (int i = 0; i < availableEngines.Count; ++i)
             {
-                ModuleEngines engine = availableEngines[i].engineModule;
+                requestReset |= (!availableEngines[i].isEnabled);
 
-                requestReset |= (!engine.isEnabled);
-
-                Part thatPart = engine.part;
+                Part thatPart = availableEngines[i].part;
                 if (thatPart.inverseStage == StageManager.CurrentStage)
                 {
-                    // modules *should* be added to this in part order
-                    if (thatPart != lastPart)
+                    if (!visitedParts.Contains(thatPart))
                     {
                         currentEngineCount++;
-                        if (engine.getIgnitionState)
+                        if (availableEngines[i].getIgnitionState)
                         {
                             activeEngineCount++;
                         }
-                        lastPart = thatPart;
+                        visitedParts.Add(thatPart);
                     }
                 }
 
                 anyEnginesOverheating |= (thatPart.skinTemperature / thatPart.skinMaxTemp > 0.9) || (thatPart.temperature / thatPart.maxTemp > 0.9);
-                anyEnginesEnabled |= engine.allowShutdown && engine.getIgnitionState;
-                anyEnginesFlameout |= (engine.isActiveAndEnabled && engine.flameout);
+                anyEnginesEnabled |= availableEngines[i].allowShutdown && availableEngines[i].getIgnitionState;
+                anyEnginesFlameout |= (availableEngines[i].isActiveAndEnabled && availableEngines[i].flameout);
 
-                float currentThrust = GetCurrentThrust(engine);
+                float currentThrust = GetCurrentThrust(availableEngines[i]);
                 totalCurrentThrust += currentThrust;
-                float rawMaxThrust = GetMaximumThrust(engine);
+                float rawMaxThrust = GetMaximumThrust(availableEngines[i]);
                 totalRawMaximumThrust += rawMaxThrust;
-                float maxThrust = rawMaxThrust * engine.thrustPercentage * 0.01f;
+                float maxThrust = rawMaxThrust * availableEngines[i].thrustPercentage * 0.01f;
                 totalLimitedMaximumThrust += maxThrust;
-                float realIsp = GetRealIsp(engine);
+                float realIsp = GetRealIsp(availableEngines[i]);
                 if (realIsp > 0.0f)
                 {
                     averageIspContribution += maxThrust / realIsp;
@@ -717,14 +609,16 @@ namespace JSI
                     currentEngineFuelFlow += specificFuelConsumption * currentThrust;
                 }
 
-                foreach (Propellant thatResource in engine.propellants)
+                foreach (Propellant thatResource in availableEngines[i].propellants)
                 {
                     resources.MarkPropellant(thatResource);
                 }
 
-                if (availableEngines[i].maxIsp > 0.0f)
+                float minIsp, maxIsp;
+                availableEngines[i].atmosphereCurve.FindMinMaxValue(out minIsp, out maxIsp);
+                if (maxIsp > 0.0f)
                 {
-                    maxIspContribution += maxThrust / availableEngines[i].maxIsp;
+                    maxIspContribution += maxThrust / maxIsp;
                 }
 
                 if (thatPart.skinMaxTemp - thatPart.skinTemperature < hottestEngine)
@@ -759,7 +653,7 @@ namespace JSI
                 actualMaxIsp = 0.0f;
             }
 
-            resources.EndLoop(Planetarium.GetUniversalTime() - lastUTC);
+            resources.EndLoop(Planetarium.GetUniversalTime());
 
             return requestReset;
         }
@@ -784,25 +678,18 @@ namespace JSI
         {
             anyParachutesDeployed = false;
             allParachutesSafe = true;
-            anyParachutesArmed = false;
 
             for (int i = 0; i < availableParachutes.Count; ++i)
             {
-                if (availableParachutes[i].deploymentState == ModuleParachute.deploymentStates.ACTIVE)
-                {
-                    anyParachutesArmed = true;
-                }
-
                 if (availableParachutes[i].deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED || availableParachutes[i].deploymentState == ModuleParachute.deploymentStates.DEPLOYED)
                 {
                     anyParachutesDeployed = true;
                 }
 
-                if (availableParachutes[i].deploymentSafeState != ModuleParachute.deploymentSafeStates.SAFE)
+                if (availableParachutes[i].deploySafe != "Safe")
                 {
                     allParachutesSafe = false;
                 }
-
             }
         }
 
@@ -904,9 +791,6 @@ namespace JSI
             FetchParachuteData();
             FetchRadarData();
             FetchWheelData();
-            FetchAntennaData();
-            FetchRadiatorData();
-            FetchScienceData();
 
             if (requestReset)
             {
@@ -926,22 +810,21 @@ namespace JSI
         {
             for (int i = 0; i < availableEngines.Count; ++i)
             {
-                ModuleEngines engine = availableEngines[i].engineModule;
-                Part thatPart = engine.part;
+                Part thatPart = availableEngines[i].part;
 
                 // The first line allows to start engines of the first stage before the initial launch 
                 if ((StageManager.CurrentStage == StageManager.StageCount && thatPart.inverseStage == StageManager.StageCount - 1) ||
                     thatPart.inverseStage == StageManager.CurrentStage || !state)
                 {
-                    if (engine.EngineIgnited != state)
+                    if (availableEngines[i].EngineIgnited != state)
                     {
-                        if (state && engine.allowRestart)
+                        if (state && availableEngines[i].allowRestart)
                         {
-                            engine.Activate();
+                            availableEngines[i].Activate();
                         }
-                        else if (engine.allowShutdown)
+                        else if (availableEngines[i].allowShutdown)
                         {
-                            engine.Shutdown();
+                            availableEngines[i].Shutdown();
                         }
                     }
                 }
@@ -1010,58 +893,6 @@ namespace JSI
                     {
                         availableSolarPanels[i].Retract();
                     }
-                }
-            }
-        }
-
-        internal void SetDeployAntennas(bool state)
-        {
-            if (state)
-            {
-                foreach (var antenna in availableAntennas)
-                {
-                    if (antenna.useAnimation && antenna.deployState == ModuleDeployablePart.DeployState.RETRACTED)
-                    {
-                        antenna.Extend();
-                    }
-                }
-            }
-            else
-            {
-                foreach (var antenna in availableAntennas)
-                {
-                    if (antenna.useAnimation && antenna.retractable && antenna.deployState == ModuleDeployablePart.DeployState.EXTENDED)
-                    {
-                        antenna.Retract();
-                    }
-                }
-            }
-        }
-
-        internal void SetRadiatorsActive(bool state)
-        {
-            if (state)
-            {
-                foreach (var radiator in availableDeployableRadiators)
-                {
-                    radiator.Extend();
-                }
-
-                foreach (var radiator in availableActiveRadiators)
-                {
-                    radiator.Activate();
-                }
-            }
-            else
-            {
-                foreach (var radiator in availableDeployableRadiators)
-                {
-                    radiator.Retract();
-                }
-
-                foreach (var radiator in availableActiveRadiators)
-                {
-                    radiator.Shutdown();
                 }
             }
         }

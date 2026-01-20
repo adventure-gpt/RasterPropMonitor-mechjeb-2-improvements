@@ -34,7 +34,19 @@ namespace JSI
         private Color32 backgroundColorValue;
         private List<DataSet> dataSets = new List<DataSet>();
         private bool startupComplete = false;
-		private Material lineMaterial;
+        // Lazy initialization to avoid calling DrawLineMaterial before shaders are loaded
+        private Material _lineMaterial;
+        private Material lineMaterial
+        {
+            get
+            {
+                if (_lineMaterial == null)
+                {
+                    _lineMaterial = JUtil.DrawLineMaterial();
+                }
+                return _lineMaterial;
+            }
+        }
         private RasterPropMonitorComputer rpmComp;
 
         public bool RenderBackground(RenderTexture screen, float cameraAspect)
@@ -98,12 +110,7 @@ namespace JSI
             }
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
-
-				if (lineMaterial == null)
-				{
-					lineMaterial = JUtil.DrawLineMaterial();
-				}
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
 
                 if (string.IsNullOrEmpty(layout))
                 {
@@ -211,7 +218,36 @@ namespace JSI
                 lineWidth = int.Parse(node.GetValue("borderWidth"));
             }
 
-            if (!node.TryGetEnum("graphType", ref graphType, default))
+            string graphTypeStr = node.GetValue("graphType").Trim();
+            if (graphTypeStr == GraphType.VerticalUp.ToString())
+            {
+                graphType = GraphType.VerticalUp;
+            }
+            else if (graphTypeStr == GraphType.VerticalDown.ToString())
+            {
+                graphType = GraphType.VerticalDown;
+            }
+            else if (graphTypeStr == GraphType.VerticalSplit.ToString())
+            {
+                graphType = GraphType.VerticalSplit;
+            }
+            else if (graphTypeStr == GraphType.HorizontalRight.ToString())
+            {
+                graphType = GraphType.HorizontalRight;
+            }
+            else if (graphTypeStr == GraphType.HorizontalLeft.ToString())
+            {
+                graphType = GraphType.HorizontalLeft;
+            }
+            else if (graphTypeStr == GraphType.HorizontalSplit.ToString())
+            {
+                graphType = GraphType.HorizontalSplit;
+            }
+            else if (graphTypeStr == GraphType.Lamp.ToString())
+            {
+                graphType = GraphType.Lamp;
+            }
+            else
             {
                 throw new ArgumentException("Unknown 'graphType' in DATA_SET");
             }

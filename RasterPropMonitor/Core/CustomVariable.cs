@@ -30,7 +30,7 @@ namespace JSI
     /// </summary>
     interface IComplexVariable
     {
-        double Evaluate();
+        object Evaluate();
     }
 
     /// <summary>
@@ -83,22 +83,51 @@ namespace JSI
                 throw new ArgumentException("Did not find any SOURCE_VARIABLE nodes in RPM_CUSTOM_VARIABLE", name);
             }
 
-            if (!node.TryGetEnum("operator", ref op, default))
+            string oper = node.GetValue("operator");
+            if (oper == Operator.NONE.ToString())
             {
-                throw new ArgumentException("Found an invalid operator type in RPM_CUSTOM_VARIABLE", node.GetValue("operator"));
+                op = Operator.NONE;
+            }
+            else if (oper == Operator.AND.ToString())
+            {
+                op = Operator.AND;
+            }
+            else if (oper == Operator.OR.ToString())
+            {
+                op = Operator.OR;
+            }
+            else if (oper == Operator.NAND.ToString())
+            {
+                op = Operator.NAND;
+            }
+            else if (oper == Operator.NOR.ToString())
+            {
+                op = Operator.NOR;
+            }
+            else if (oper == Operator.XOR.ToString())
+            {
+                op = Operator.XOR;
+            }
+            else if (oper == Operator.ISNANORINF.ToString())
+            {
+                op = Operator.ISNANORINF;
+            }
+            else
+            {
+                throw new ArgumentException("Found an invalid operator type in RPM_CUSTOM_VARIABLE", oper);
             }
         }
 
-        public double Evaluate()
+        public object Evaluate()
         {
             bool evaluation = false;
             if (op == Operator.ISNANORINF)
             {
-                evaluation = (double.IsNaN(sourceVariables[0].rawValue) || double.IsInfinity(sourceVariables[0].rawValue)) ^ reverse[0];
+                evaluation = (float.IsNaN(sourceVariables[0].rawValue) || float.IsInfinity(sourceVariables[0].rawValue)) ^ reverse[0];
 
                 for (int i = 1; i < sourceVariables.Count && (evaluation == false); ++i)
                 {
-                    evaluation = (double.IsNaN(sourceVariables[i].rawValue) || double.IsInfinity(sourceVariables[i].rawValue)) ^ reverse[i];
+                    evaluation = (float.IsNaN(sourceVariables[i].rawValue) || float.IsInfinity(sourceVariables[i].rawValue)) ^ reverse[i];
                 }
             }
             else

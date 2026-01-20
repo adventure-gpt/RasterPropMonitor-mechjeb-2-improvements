@@ -23,123 +23,8 @@ using System;
 namespace JSI
 {
     // This entire class is imported wholesale from MechJeb.
-    // Not anymore: I removed everything that is now implemented by squad - which means most of these functions now operate in radians and not degrees
     public static class OrbitExtensions
     {
-        //position relative to the primary
-        public static Vector3d SwappedRelativePositionAtUT(this Orbit o, double UT)
-        {
-            return o.getRelativePositionAtUT(UT).xzy;
-        }
-        //normalized vector perpendicular to the orbital plane
-        //convention: as you look down along the orbit normal, the satellite revolves counterclockwise
-        public static Vector3d SwappedOrbitNormal(this Orbit o)
-        {
-            return -(o.GetOrbitNormal().xzy).normalized;
-        }
-        //Returns the next time at which a will cross its ascending node with b.
-        //For elliptical orbits this is a time between UT and UT + a.period.
-        //For hyperbolic orbits this can be any time, including a time in the past if
-        //the ascending node is in the past.
-        //NOTE: this function will throw an ArgumentException if a is a hyperbolic orbit and the "ascending node"
-        //occurs at a true anomaly that a does not actually ever attain
-        public static double TimeOfAscendingNode(this Orbit a, Orbit b, double UT)
-        {
-            return a.TimeOfTrueAnomaly(Orbit.AscendingNodeTrueAnomaly(a, b), UT);
-        }
-        //Returns the next time at which a will cross its descending node with b.
-        //For elliptical orbits this is a time between UT and UT + a.period.
-        //For hyperbolic orbits this can be any time, including a time in the past if
-        //the descending node is in the past.
-        //NOTE: this function will throw an ArgumentException if a is a hyperbolic orbit and the "descending node"
-        //occurs at a true anomaly that a does not actually ever attain
-        public static double TimeOfDescendingNode(this Orbit a, Orbit b, double UT)
-        {
-            return a.TimeOfTrueAnomaly(Orbit.DescendingNodeTrueAnomaly(a, b), UT);
-        }
-        //Returns the next time at which the orbiting object will cross the equator
-        //moving northward, if o is east-moving, or southward, if o is west-moving.
-        //For elliptical orbits this is a time between UT and UT + o.period.
-        //For hyperbolic orbits this can by any time, including a time in the past if the
-        //ascending node is in the past.
-        //NOTE: this function will throw an ArgumentException if o is a hyperbolic orbit and the
-        //"ascending node" occurs at a true anomaly that o does not actually ever attain.
-        public static double TimeOfAscendingNodeEquatorial(this Orbit o, double UT)
-        {
-            return o.TimeOfTrueAnomaly(o.AscendingNodeEquatorialTrueAnomaly(), UT);
-        }
-        //Returns the next time at which the orbiting object will cross the equator
-        //moving southward, if o is east-moving, or northward, if o is west-moving.
-        //For elliptical orbits this is a time between UT and UT + o.period.
-        //For hyperbolic orbits this can by any time, including a time in the past if the
-        //descending node is in the past.
-        //NOTE: this function will throw an ArgumentException if o is a hyperbolic orbit and the
-        //"descending node" occurs at a true anomaly that o does not actually ever attain.
-        public static double TimeOfDescendingNodeEquatorial(this Orbit o, double UT)
-        {
-            return o.TimeOfTrueAnomaly(o.DescendingNodeEquatorialTrueAnomaly(), UT);
-        }
-        //Gives the true anomaly at which o crosses the equator going northwards, if o is east-moving,
-        //or southwards, if o is west-moving.
-        //The returned value is always between 0 and 2PI.
-        public static double AscendingNodeEquatorialTrueAnomaly(this Orbit o)
-        {
-            Vector3d vectorToAN = Vector3d.Cross(o.referenceBody.transform.up, o.SwappedOrbitNormal());
-            return o.TrueAnomalyFromVector(vectorToAN);
-        }
-        //Gives the true anomaly at which o crosses the equator going southwards, if o is east-moving,
-        //or northwards, if o is west-moving.
-        //The returned value is always between 0 and 2PI.
-        public static double DescendingNodeEquatorialTrueAnomaly(this Orbit o)
-        {
-            return JUtil.ClampRadiansTwoPi(o.AscendingNodeEquatorialTrueAnomaly() + Math.PI);
-        }
-        //For hyperbolic orbits, the true anomaly only takes on values in the range
-        // -M < true anomaly < +M for some M. This function computes M.
-        public static double MaximumTrueAnomaly(this Orbit o)
-        {
-            if (o.eccentricity < 1)
-                return Math.PI;
-            return Math.Acos(-1 / o.eccentricity);
-        }
-        //Returns whether a has an ascending node with b. This can be false
-        //if a is hyperbolic and the would-be ascending node is within the opening
-        //angle of the hyperbola.
-        public static bool AscendingNodeExists(this Orbit a, Orbit b)
-        {
-            return Math.Abs(JUtil.ClampRadiansPi(Orbit.AscendingNodeTrueAnomaly(a, b))) <= a.MaximumTrueAnomaly();
-        }
-        //Returns whether a has a descending node with b. This can be false
-        //if a is hyperbolic and the would-be descending node is within the opening
-        //angle of the hyperbola.
-        public static bool DescendingNodeExists(this Orbit a, Orbit b)
-        {
-            return Math.Abs(JUtil.ClampRadiansPi(Orbit.DescendingNodeTrueAnomaly(a, b))) <= a.MaximumTrueAnomaly();
-        }
-        //Returns whether o has an ascending node with the equator. This can be false
-        //if o is hyperbolic and the would-be ascending node is within the opening
-        //angle of the hyperbola.
-        public static bool AscendingNodeEquatorialExists(this Orbit o)
-        {
-            return Math.Abs(JUtil.ClampRadiansPi(o.AscendingNodeEquatorialTrueAnomaly())) <= o.MaximumTrueAnomaly();
-        }
-        //Returns whether o has a descending node with the equator. This can be false
-        //if o is hyperbolic and the would-be descending node is within the opening
-        //angle of the hyperbola.
-        public static bool DescendingNodeEquatorialExists(this Orbit o)
-        {
-            return Math.Abs(JUtil.ClampRadiansPi(o.DescendingNodeEquatorialTrueAnomaly())) <= o.MaximumTrueAnomaly();
-        }
-        //Computes the angle between two orbital planes. This will be a number between 0 and 180
-        //Note that in the convention used two objects orbiting in the same plane but in
-        //opposite directions have a relative inclination of 180 degrees.
-        public static double RelativeInclination_DEG(this Orbit a, Orbit b)
-        {
-            // note strangely, the stock RelativeInclination function is already in degrees
-            return Orbit.RelativeInclination(a, b);
-        }
-#if false
-
         // These "Swapped" functions translate preexisting Orbit class functions into world
         // space. For some reason, Orbit class functions seem to use a coordinate system
         // in which the Y and Z coordinates are swapped.
@@ -148,13 +33,22 @@ namespace JSI
         {
             return o.getOrbitalVelocityAtUT(UT).xzy;
         }
-
+        //position relative to the primary
+        public static Vector3d SwappedRelativePositionAtUT(this Orbit o, double UT)
+        {
+            return o.getRelativePositionAtUT(UT).xzy;
+        }
         //position in world space
         public static Vector3d SwappedAbsolutePositionAtUT(this Orbit o, double UT)
         {
             return o.referenceBody.position + o.SwappedRelativePositionAtUT(UT);
         }
-
+        //normalized vector perpendicular to the orbital plane
+        //convention: as you look down along the orbit normal, the satellite revolves counterclockwise
+        public static Vector3d SwappedOrbitNormal(this Orbit o)
+        {
+            return -(o.GetOrbitNormal().xzy).normalized;
+        }
         //normalized vector along the orbital velocity
         public static Vector3d Prograde(this Orbit o, double UT)
         {
@@ -297,7 +191,7 @@ namespace JSI
             {
                 return o.TimeOfTrueAnomaly(180, UT);
             }
-            throw new ArgumentException("OrbitExtensions.GetNextApoapsisTime cannot be called on hyperbolic orbits");
+            throw new ArgumentException("OrbitExtensions.NextApoapsisTime cannot be called on hyperbolic orbits");
         }
         //Gives the true anomaly (in a's orbit) at which a crosses its ascending node
         //with b's orbit.
@@ -314,7 +208,57 @@ namespace JSI
         {
             return JUtil.ClampDegrees360(a.AscendingNodeTrueAnomaly(b) + 180);
         }
-
+        //Gives the true anomaly at which o crosses the equator going northwards, if o is east-moving,
+        //or southwards, if o is west-moving.
+        //The returned value is always between 0 and 360.
+        public static double AscendingNodeEquatorialTrueAnomaly(this Orbit o)
+        {
+            Vector3d vectorToAN = Vector3d.Cross(o.referenceBody.transform.up, o.SwappedOrbitNormal());
+            return o.TrueAnomalyFromVector(vectorToAN);
+        }
+        //Gives the true anomaly at which o crosses the equator going southwards, if o is east-moving,
+        //or northwards, if o is west-moving.
+        //The returned value is always between 0 and 360.
+        public static double DescendingNodeEquatorialTrueAnomaly(this Orbit o)
+        {
+            return JUtil.ClampDegrees360(o.AscendingNodeEquatorialTrueAnomaly() + 180);
+        }
+        //For hyperbolic orbits, the true anomaly only takes on values in the range
+        // -M < true anomaly < +M for some M. This function computes M.
+        public static double MaximumTrueAnomaly(this Orbit o)
+        {
+            if (o.eccentricity < 1)
+                return 180;
+            return 180 / Math.PI * Math.Acos(-1 / o.eccentricity);
+        }
+        //Returns whether a has an ascending node with b. This can be false
+        //if a is hyperbolic and the would-be ascending node is within the opening
+        //angle of the hyperbola.
+        public static bool AscendingNodeExists(this Orbit a, Orbit b)
+        {
+            return Math.Abs(JUtil.ClampDegrees180(a.AscendingNodeTrueAnomaly(b))) <= a.MaximumTrueAnomaly();
+        }
+        //Returns whether a has a descending node with b. This can be false
+        //if a is hyperbolic and the would-be descending node is within the opening
+        //angle of the hyperbola.
+        public static bool DescendingNodeExists(this Orbit a, Orbit b)
+        {
+            return Math.Abs(JUtil.ClampDegrees180(a.DescendingNodeTrueAnomaly(b))) <= a.MaximumTrueAnomaly();
+        }
+        //Returns whether o has an ascending node with the equator. This can be false
+        //if o is hyperbolic and the would-be ascending node is within the opening
+        //angle of the hyperbola.
+        public static bool AscendingNodeEquatorialExists(this Orbit o)
+        {
+            return Math.Abs(JUtil.ClampDegrees180(o.AscendingNodeEquatorialTrueAnomaly())) <= o.MaximumTrueAnomaly();
+        }
+        //Returns whether o has a descending node with the equator. This can be false
+        //if o is hyperbolic and the would-be descending node is within the opening
+        //angle of the hyperbola.
+        public static bool DescendingNodeEquatorialExists(this Orbit o)
+        {
+            return Math.Abs(JUtil.ClampDegrees180(o.DescendingNodeEquatorialTrueAnomaly())) <= o.MaximumTrueAnomaly();
+        }
         //Converts a direction, specified by a Vector3d, into a true anomaly.
         //The vector is projected into the orbital plane and then the true anomaly is
         //computed as the angle this vector makes with the vector pointing to the periapsis.
@@ -322,7 +266,7 @@ namespace JSI
         public static double TrueAnomalyFromVector(this Orbit o, Vector3d vec)
         {
             Vector3d projected = Vector3d.Exclude(o.SwappedOrbitNormal(), vec);
-            Vector3d vectorToPe = o.GetEccVector().xzy;
+            Vector3d vectorToPe = o.eccVec.xzy;
             double angleFromPe = Math.Abs(Vector3d.Angle(vectorToPe, projected));
 
             //If the vector points to the infalling part of the orbit then we need to do 360 minus the
@@ -398,6 +342,69 @@ namespace JSI
         {
             return o.UTAtMeanAnomaly(o.GetMeanAnomalyAtEccentricAnomaly(o.GetEccentricAnomalyAtTrueAnomaly(trueAnomaly)), UT);
         }
+        //Returns the next time at which a will cross its ascending node with b.
+        //For elliptical orbits this is a time between UT and UT + a.period.
+        //For hyperbolic orbits this can be any time, including a time in the past if
+        //the ascending node is in the past.
+        //NOTE: this function will throw an ArgumentException if a is a hyperbolic orbit and the "ascending node"
+        //occurs at a true anomaly that a does not actually ever attain
+        public static double TimeOfAscendingNode(this Orbit a, Orbit b, double UT)
+        {
+            if (a.eccentricity >= 1.0)
+            {
+                return UT;
+            }
+            else
+            {
+                return a.TimeOfTrueAnomaly(a.AscendingNodeTrueAnomaly(b), UT);
+            }
+        }
+        //Returns the next time at which a will cross its descending node with b.
+        //For elliptical orbits this is a time between UT and UT + a.period.
+        //For hyperbolic orbits this can be any time, including a time in the past if
+        //the descending node is in the past.
+        //NOTE: this function will throw an ArgumentException if a is a hyperbolic orbit and the "descending node"
+        //occurs at a true anomaly that a does not actually ever attain
+        public static double TimeOfDescendingNode(this Orbit a, Orbit b, double UT)
+        {
+            if (a.eccentricity >= 1.0)
+            {
+                return UT;
+            }
+            else
+            {
+                return a.TimeOfTrueAnomaly(a.DescendingNodeTrueAnomaly(b), UT);
+            }
+        }
+        //Returns the next time at which the orbiting object will cross the equator
+        //moving northward, if o is east-moving, or southward, if o is west-moving.
+        //For elliptical orbits this is a time between UT and UT + o.period.
+        //For hyperbolic orbits this can by any time, including a time in the past if the
+        //ascending node is in the past.
+        //NOTE: this function will throw an ArgumentException if o is a hyperbolic orbit and the
+        //"ascending node" occurs at a true anomaly that o does not actually ever attain.
+        public static double TimeOfAscendingNodeEquatorial(this Orbit o, double UT)
+        {
+            if (o.eccentricity >= 1.0)
+            {
+                return UT;
+            }
+            else
+            {
+                return o.TimeOfTrueAnomaly(o.AscendingNodeEquatorialTrueAnomaly(), UT);
+            }
+        }
+        //Returns the next time at which the orbiting object will cross the equator
+        //moving southward, if o is east-moving, or northward, if o is west-moving.
+        //For elliptical orbits this is a time between UT and UT + o.period.
+        //For hyperbolic orbits this can by any time, including a time in the past if the
+        //descending node is in the past.
+        //NOTE: this function will throw an ArgumentException if o is a hyperbolic orbit and the
+        //"descending node" occurs at a true anomaly that o does not actually ever attain.
+        public static double TimeOfDescendingNodeEquatorial(this Orbit o, double UT)
+        {
+            return o.TimeOfTrueAnomaly(o.DescendingNodeEquatorialTrueAnomaly(), UT);
+        }
         //Computes the period of the phase angle between orbiting objects a and b.
         //This only really makes sense for approximately circular orbits in similar planes.
         //For noncircular orbits the time variation of the phase angle is only "quasiperiodic"
@@ -422,6 +429,13 @@ namespace JSI
             }
             return angle;
         }
+        //Computes the angle between two orbital planes. This will be a number between 0 and 180
+        //Note that in the convention used two objects orbiting in the same plane but in
+        //opposite directions have a relative inclination of 180 degrees.
+        public static double RelativeInclination(this Orbit a, Orbit b)
+        {
+            return Math.Abs(Vector3d.Angle(a.SwappedOrbitNormal(), b.SwappedOrbitNormal()));
+        }
         //Finds the next time at which the orbiting object will achieve a given radius
         //from the center of the primary.
         //If the given radius is impossible for this orbit, an ArgumentException is thrown.
@@ -433,7 +447,7 @@ namespace JSI
         public static double NextTimeOfRadius(this Orbit o, double UT, double radius)
         {
             if (radius < o.PeR || (o.eccentricity < 1 && radius > o.ApR))
-                throw new ArgumentException("OrbitExtensions.GetNextTimeOfRadius: given radius of " + radius + " is never achieved: o.PeR = " + o.PeR + " and o.ApR = " + o.ApR);
+                throw new ArgumentException("OrbitExtensions.NextTimeOfRadius: given radius of " + radius + " is never achieved: o.PeR = " + o.PeR + " and o.ApR = " + o.ApR);
 
             double trueAnomaly1 = 180 / Math.PI * o.TrueAnomalyAtRadius(radius);
             double trueAnomaly2 = 360 - trueAnomaly1;
@@ -450,6 +464,5 @@ namespace JSI
                 Vector3d.Dot(-o.NormalPlus(UT), dV),
                 Vector3d.Dot(o.Prograde(UT), dV));
         }
-#endif
     }
 }

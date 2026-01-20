@@ -517,7 +517,7 @@ namespace JSI
                 JUtil.ShowHide(true, overlayMesh);
             }
 
-            JUtil.RenderTextureCamera(hudCamera);
+            hudCamera.Render();
 
             JUtil.ShowHide(false, overlayMesh, ladderMesh, headingMesh, progradeLadderIcon, progradeHeadingIcon);
             for (int i = 0; i < verticalBars.Count; ++i)
@@ -540,7 +540,7 @@ namespace JSI
             }
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
 
                 backgroundColorValue = ConfigNode.ParseColor32(backgroundColor);
 

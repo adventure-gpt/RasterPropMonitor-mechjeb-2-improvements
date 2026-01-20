@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using UnityEngine;
 
 namespace JSI
@@ -20,7 +20,7 @@ namespace JSI
 
             try
             {
-                Transform xform = JUtil.FindPropTransform(internalProp, transformToShift);
+                Transform xform = internalProp.FindModelTransform(transformToShift);
                 // MOARdV TODO: Accessing and changing .material causes it to
                 // become a copy, according to Unity.  Must destroy it.  Which
                 // means this method can't self-destruct; it must use OnDestroy.

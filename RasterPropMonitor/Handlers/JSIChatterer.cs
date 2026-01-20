@@ -32,7 +32,7 @@ namespace JSI
         private static readonly DynamicFuncBool chattererRx;
         private static readonly DynamicAction chattererStartTalking;
 
-        public static readonly bool chattererFound;
+        private static readonly bool chattererFound;
 
         private Guid lastVessel;
         private UnityEngine.Object chatterer;
@@ -90,7 +90,6 @@ namespace JSI
             if (chatterer_t != null && chattererStartTalking != null)
             {
                 chattererFound = true;
-                IJSIModule.RegisterModule(typeof(JSIChatterer));
             }
             else
             {
@@ -98,8 +97,9 @@ namespace JSI
             }
         }
 
-        public JSIChatterer(Vessel myVessel) : base(myVessel)
+        public JSIChatterer(Vessel myVessel)
         {
+            vessel = myVessel;
             JUtil.LogMessage(this, "A supported version of Chatterer is {0}", (chattererFound) ? "present" : "not available");
             lastVessel = Guid.Empty;
         }

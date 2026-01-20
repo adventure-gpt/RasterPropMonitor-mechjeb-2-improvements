@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -30,12 +30,7 @@ namespace JSI
         private readonly Part ourPart;
         private GameObject cameraTransform;
         private Part cameraPart;
-		public JSIExternalCameraSelector CameraSelectorModule { get; private set; }
         private readonly int fxCameraIndex = 6;
-		private readonly int farCameraIndex = 4;
-		private readonly bool skipFarCamera =
-			SystemInfo.graphicsDeviceVersion.StartsWith("Direct3D") && 
-			(Versioning.fetch.versionMinor >= 9 || Versioning.fetch.versionMajor > 1);
         private readonly string[] knownCameraNames = 
         {
             "GalaxyCamera",
@@ -74,25 +69,8 @@ namespace JSI
             flickerCounter = 0;
         }
 
-        public bool PointCamera(SteerableCameraParameters cameraParameters)
-        {
-            bool result = PointCamera(cameraParameters.cameraTransform, cameraParameters.currentFoV);
-            if (result)
-            {
-                if (CameraSelectorModule != null)
-                {
-                    cameraParameters.fovLimits.x = CameraSelectorModule.cameraFoVMin;
-                    cameraParameters.fovLimits.y = CameraSelectorModule.cameraFoVMax;
-                    FOV = cameraParameters.currentFoV = CameraSelectorModule.cameraFoVMax;
-                }
-            }
-
-            return result;
-        }
-
         public bool PointCamera(string newCameraName, float initialFOV)
         {
-            CameraSelectorModule = null;
             CleanupCameraObjects();
             if (!string.IsNullOrEmpty(newCameraName))
             {
@@ -192,29 +170,39 @@ namespace JSI
                     CameraSetup(i, knownCameraNames[i]);
                 }
                 enabled = true;
-                //JUtil.LogMessage(this, "Switched to camera \"{0}\".", cameraTransform.name);
+                JUtil.LogInfo(this, "Switched to camera \"{0}\" at position {1}.", cameraTransform.name, cameraTransform.transform.position);
                 return true;
             }
             else
             {
-                //JUtil.LogMessage(this, "Tried to switch to camera \"{0}\" but camera was not found.", newCameraName);
+                JUtil.LogInfo(this, "Tried to switch to camera \"{0}\" but camera was not found.", newCameraName);
                 return false;
             }
         }
 
-        public void CleanupCameraObjects()
+        private void CleanupCameraObjects()
         {
-            for (int i = 0; i < cameraObject.Length; i++)
+            if (enabled)
             {
-                if (cameraObject[i] != null)
+                for (int i = 0; i < cameraObject.Length; i++)
                 {
-                    UnityEngine.Object.Destroy(cameraObject[i]);
+                    try
+                    {
+                        UnityEngine.Object.Destroy(cameraObject[i]);
+                        // Analysis disable once EmptyGeneralCatchClause
+                    }
+                    catch
+                    {
+                        // Yes, that's really what it's supposed to be doing.
+                    }
+                    finally
+                    {
+                        cameraObject[i] = null;
+                    }
                 }
-                
-                cameraObject[i] = null;
+                enabled = false;
+                //JUtil.LogMessage(this, "Turning camera off.");
             }
-
-            enabled = false;
             cameraPart = null;
             cameraTransform = null;
         }
@@ -226,7 +214,6 @@ namespace JSI
             {
                 cameraTransform = location.gameObject;
                 cameraPart = thatpart;
-                CameraSelectorModule = cameraPart.FindModuleImplementing<JSIExternalCameraSelector>();
                 return true;
             }
             return false;
@@ -248,17 +235,10 @@ namespace JSI
                 cameraObject[index].CopyFrom(sourceCam);
                 cameraObject[index].enabled = false;
                 cameraObject[index].aspect = cameraAspect;
-
-                // Minor hack to bring the near clip plane for the "up close"
-                // cameras drastically closer to where the cameras notionally
-                // are.  Experimentally, these two cameras have N/F of 0.4 / 300.0,
-                // or 750:1 Far/Near ratio.  Changing this to 8192:1 brings the
-                // near plane to 37cm or so, which hopefully is close enough to
-                // see nearby details without creating z-fighting artifacts.
-                if (!skipFarCamera && (index == 5 || index == 6))
-                {
-                    cameraObject[index].nearClipPlane = cameraObject[index].farClipPlane / 8192.0f;
-                }
+                
+                // For external cameras, we need a much closer near clip plane to see nearby parts
+                // Set near clip plane to 0.01m (1cm) so we can see parts that are very close
+                cameraObject[index].nearClipPlane = 0.01f;
             }
         }
 
@@ -285,6 +265,7 @@ namespace JSI
 
         public bool Render(RenderTexture screen, float yawOffset, float pitchOffset)
         {
+
             if (isReferenceCamera && ourVessel.GetReferenceTransformPart() != referencePart)
             {
                 CleanupCameraObjects();
@@ -333,7 +314,6 @@ namespace JSI
 
             // This is a hack - FXCamera isn't always available, so I need to add and remove it in flight.
             // I don't know if there's a callback I can use to find when it's added, so brute force it for now.
-
             bool fxCameraExists = JUtil.DoesCameraExist(knownCameraNames[fxCameraIndex]);
             if (cameraObject[fxCameraIndex] == null)
             {
@@ -361,11 +341,6 @@ namespace JSI
 
             for (int i = 0; i < cameraObject.Length; i++)
             {
-				if (skipFarCamera && i == farCameraIndex)
-				{
-					continue;
-				}
-
                 if (cameraObject[i] != null)
                 {
                     // ScaledSpace camera and its derived cameras from Visual Enhancements mod are special - they don't move.
@@ -376,9 +351,7 @@ namespace JSI
                     cameraObject[i].targetTexture = screen;
                     cameraObject[i].transform.rotation = rotation;
                     cameraObject[i].fieldOfView = FOV;
-                    cameraObject[i].enabled = true;
-
-                    //JUtil.RenderTextureCamera(cameraObject[i]);
+                    cameraObject[i].Render();
                 }
             }
             return true;

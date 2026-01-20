@@ -26,8 +26,6 @@ namespace JSI
 {
     public class JSISwitchableVariableLabel : InternalModule
     {
-        [SerializeReference] ConfigNodeHolder moduleConfig;
-
         [KSPField]
         public string labelTransform = string.Empty;
         [KSPField]
@@ -37,8 +35,6 @@ namespace JSI
         [KSPField]
         public string switchTransform = string.Empty;
         [KSPField]
-        public string decrementSwitchTransform = string.Empty;
-        [KSPField]
         public string switchSound = "Squad/Sounds/sound_click_flick";
         [KSPField]
         public float switchSoundVolume = 0.5f;
@@ -46,15 +42,9 @@ namespace JSI
         public string coloredObject = string.Empty;
         [KSPField]
         public string colorName = "_EmissiveColor";
-        [KSPField]
-        public string alignment = "TopLeft";
-        [KSPField]
-        public bool persistActiveLabel = false;
-
         private int colorNameId = -1;
         private readonly List<VariableLabelSet> labelsEx = new List<VariableLabelSet>();
-        private int activeLabel = 0;
-        private string persistentVariableName;
+        private int activeLabel;
         private const string fontName = "Arial";
         private InternalText textObj;
         private Transform textObjTransform;
@@ -63,63 +53,53 @@ namespace JSI
         private FXGroup audioOutput;
         private RasterPropMonitorComputer rpmComp;
 
-        public override void OnLoad(ConfigNode node)
+        public void Start()
         {
-            moduleConfig = ScriptableObject.CreateInstance<ConfigNodeHolder>();
-            moduleConfig.Node = node;
-        }
-
-        public override void OnAwake()
-        {
-            if (!HighLogic.LoadedSceneIsFlight)
+            if (HighLogic.LoadedSceneIsEditor)
             {
                 return;
             }
 
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
 
-                textObjTransform = JUtil.FindPropTransform(internalProp, labelTransform);
-                textObj = InternalComponents.Instance.CreateText(fontName, fontSize * 15.5f, textObjTransform, "", Color.green, false, alignment);
-                
-                if (persistActiveLabel)
-                {
-                    persistentVariableName = "switchableLabel_" + internalProp.propID + "_" + moduleID;
-                    activeLabel = (int)rpmComp.GetPersistentVariable(persistentVariableName, activeLabel, false);
-                }
-                else
-                {
-                    activeLabel = 0;
-                }
+                textObjTransform = internalProp.FindModelTransform(labelTransform);
+                textObj = InternalComponents.Instance.CreateText(fontName, fontSize * 15.5f, textObjTransform, "", Color.green, false, "TopLeft");
+                activeLabel = 0;
 
                 SmarterButton.CreateButton(internalProp, switchTransform, Click);
 
-                if (decrementSwitchTransform != string.Empty)
+                ConfigNode moduleConfig = null;
+                foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("PROP"))
                 {
-                    SmarterButton.CreateButton(internalProp, decrementSwitchTransform, DecremenetClick);
-                }
-
-                ConfigNode[] variableNodes = moduleConfig.Node.GetNodes("VARIABLESET");
-
-                for (int i = 0; i < variableNodes.Length; i++)
-                {
-                    try
+                    if (node.GetValue("name") == internalProp.propName)
                     {
-                        labelsEx.Add(new VariableLabelSet(variableNodes[i], internalProp));
-                    }
-                    catch (ArgumentException e)
-                    {
-                        JUtil.LogErrorMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propID);
+
+                        moduleConfig = node.GetNodes("MODULE")[moduleID];
+                        ConfigNode[] variableNodes = moduleConfig.GetNodes("VARIABLESET");
+
+                        for (int i = 0; i < variableNodes.Length; i++)
+                        {
+                            try
+                            {
+                                labelsEx.Add(new VariableLabelSet(variableNodes[i], part));
+                            }
+                            catch (ArgumentException e)
+                            {
+                                JUtil.LogErrorMessage(this, "Error in building prop number {1} - {0}", e.Message, internalProp.propID);
+                            }
+                        }
+                        break;
                     }
                 }
 
                 // Fallback: If there are no VARIABLESET blocks, we treat the module configuration itself as a variableset block.
-                if (labelsEx.Count < 1)
+                if (labelsEx.Count < 1 && moduleConfig != null)
                 {
                     try
                     {
-                        labelsEx.Add(new VariableLabelSet(moduleConfig.Node, internalProp));
+                        labelsEx.Add(new VariableLabelSet(moduleConfig, part));
                     }
                     catch (ArgumentException e)
                     {
@@ -133,8 +113,6 @@ namespace JSI
                     throw new ArgumentException("No labels defined");
                 }
 
-                activeLabel = Math.Max(0, Math.Min(activeLabel, labelsEx.Count - 1));
-
                 colorShiftRenderer = internalProp.FindModelComponent<Renderer>(coloredObject);
                 if (labelsEx[activeLabel].hasColor)
                 {
@@ -145,7 +123,11 @@ namespace JSI
                 {
                     if (labelsEx[activeLabel].oneShot)
                     {
-                        textObj.text.text = labelsEx[activeLabel].label.cachedResult;
+                        // Fetching formatString directly is notionally bad
+                        // because there may be formatting stuff, but if
+                        // oneShot is true, we already know that this is a
+                        // constant string with no formatting.
+                        textObj.text.text = labelsEx[activeLabel].label.formatString;
                     }
                     else
                     {
@@ -171,9 +153,20 @@ namespace JSI
 
         private bool UpdateCheck()
         {
-            if (labelsEx.Count == 0)
+            // Saw an out-of-range exception in the next if clause once as a
+            // side effect of docking.  Not sure if OnUpdate was called after
+            // onDestroy, or before Start.
+            if (activeLabel > labelsEx.Count)
             {
-                rpmComp.RemoveInternalModule(this);
+                activeLabel = labelsEx.Count - 1;
+                if(activeLabel < 0)
+                {
+                    return false;
+                }
+            }
+
+            if (labelsEx[activeLabel].oneShot)
+            {
                 return false;
             }
 
@@ -188,41 +181,19 @@ namespace JSI
 
         public override void OnUpdate()
         {
-            if (UpdateCheck())
+            if (JUtil.RasterPropMonitorShouldUpdate(vessel) && UpdateCheck())
             {
-                textObj.text.text = labelsEx[activeLabel].label.GetFormattedString();
-
-                if (labelsEx[activeLabel].oneShot)
-                {
-                    rpmComp.RemoveInternalModule(this);
-                }
+                textObj.text.text = StringProcessor.ProcessString(labelsEx[activeLabel].label, rpmComp);
             }
-        }
-
-        private void DecremenetClick()
-        {
-            UpdateActiveLabel(-1);
         }
 
         public void Click()
         {
-            UpdateActiveLabel(+1);
-        }
+            activeLabel++;
 
-        void UpdateActiveLabel(int direction)
-        {
-            if (labelsEx.Count == 0) return;
-
-            activeLabel = (activeLabel + direction + labelsEx.Count) % labelsEx.Count;
-
-            if (persistActiveLabel)
+            if (activeLabel == labelsEx.Count)
             {
-                rpmComp.SetPersistentVariable(persistentVariableName, activeLabel, false);
-            }
-
-            if (labelsEx.Count > 1 && !labelsEx[activeLabel].oneShot)
-            {
-                rpmComp.RestoreInternalModule(this);
+                activeLabel = 0;
             }
 
             if (labelsEx[activeLabel].hasColor)
@@ -232,7 +203,7 @@ namespace JSI
 
             if (labelsEx[activeLabel].hasText)
             {
-                textObj.text.text = labelsEx[activeLabel].label.GetFormattedString();
+                textObj.text.text = StringProcessor.ProcessString(labelsEx[activeLabel].label, rpmComp);
             }
 
             // Force an update.
@@ -254,16 +225,16 @@ namespace JSI
         public readonly Color color;
         public readonly bool hasColor;
 
-        public VariableLabelSet(ConfigNode node, InternalProp prop)
+        public VariableLabelSet(ConfigNode node, Part part)
         {
             RasterPropMonitorComputer rpmComp = null;
             if (node.HasValue("labelText"))
             {
                 string labelText = node.GetValue("labelText").Trim().UnMangleConfigText();
                 hasText = true;
-                rpmComp = RasterPropMonitorComputer.FindFromProp(prop);
+                oneShot = !labelText.Contains("$&$");
+                rpmComp = RasterPropMonitorComputer.Instantiate(part, true);
                 label = new StringProcessorFormatter(labelText, rpmComp);
-                oneShot = label.IsConstant;
             }
             else
             {
@@ -273,7 +244,7 @@ namespace JSI
 
             if (node.HasValue("color"))
             {
-                color = JUtil.ParseColor32(node.GetValue("color").Trim(), rpmComp);
+                color = JUtil.ParseColor32(node.GetValue("color").Trim(), part, ref rpmComp);
                 hasColor = true;
             }
             else

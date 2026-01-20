@@ -19,14 +19,88 @@
  * along with RasterPropMonitor.  If not, see <http://www.gnu.org/licenses/>.
  ****************************************************************************/
 using System;
-using JSI.Core;
 using UnityEngine;
 
 namespace JSI
 {
     public partial class RPMVesselComputer : VesselModule
     {
-        internal readonly PersistentVariableCollection PersistentVariables = new PersistentVariableCollection();
+        /// <summary>
+        /// Do a "broadcast" GetPersistentVariable, where we iterate over every
+        /// part in the craft and find each RasterPropMonitorComputer.  Return
+        /// the value from the first one that contains the variable, or the
+        /// default value otherwise.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="defaultValue"></param>
+        /// <returns></returns>
+        internal object GetPersistentVariable(string name, object defaultValue)
+        {
+            if (vessel != null)
+            {
+                for (int partIdx = 0; partIdx < vessel.parts.Count; ++partIdx)
+                {
+                    RasterPropMonitorComputer rpmc = RasterPropMonitorComputer.Instantiate(vessel.parts[partIdx], false);
+                    if (rpmc != null)
+                    {
+                        if (rpmc.HasPersistentVariable(name, false))
+                        {
+                            return rpmc.GetPersistentVariable(name, defaultValue, false);
+                        }
+                    }
+                }
+            }
+
+            return defaultValue;
+        }
+
+        /// <summary>
+        /// Iterate over every part in the craft to see if any
+        /// RasterPropMonitorComputer instances have the specified persistent
+        /// variable.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <returns></returns>
+        internal bool HasPersistentVariable(string name)
+        {
+            if (vessel != null)
+            {
+                for (int partIdx = 0; partIdx < vessel.parts.Count; ++partIdx)
+                {
+                    RasterPropMonitorComputer rpmc = RasterPropMonitorComputer.Instantiate(vessel.parts[partIdx], false);
+                    if (rpmc != null)
+                    {
+                        if (rpmc.HasPersistentVariable(name, false))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Iterate over all RPMC objects in the craft and set the specified
+        /// persistent var to the same value.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="value"></param>
+        internal void SetPersistentVariable(string name, object value)
+        {
+            if (vessel != null)
+            {
+                for (int partIdx = 0; partIdx < vessel.parts.Count; ++partIdx)
+                {
+                    RasterPropMonitorComputer rpmc = RasterPropMonitorComputer.Instantiate(vessel.parts[partIdx], false);
+                    if (rpmc != null)
+                    {
+                        rpmc.SetPersistentVariable(name, value, false);
+                    }
+                }
+            }
+        }
         
         //--- Fallback evaluators
         #region FallbackEvaluators
@@ -67,18 +141,18 @@ namespace JSI
                         Vector3 bodyLift = p.transform.rotation * (p.bodyLiftScalar * p.DragCubes.LiftForce);
                         bodyLift = Vector3.ProjectOnPlane(bodyLift, -p.dragVectorDir);
                         pureLiftV += bodyLift;
-                    }
 
-                    for (int m = 0; m < p.Modules.Count; m++)
-                    {
-                        PartModule pm = p.Modules[m];
-                        if (pm.isEnabled && pm is ModuleLiftingSurface)
+                        for (int m = 0; m < p.Modules.Count; m++)
                         {
-                            ModuleLiftingSurface liftingSurface = pm as ModuleLiftingSurface;
-                            if (!p.ShieldedFromAirstream)
+                            PartModule pm = p.Modules[m];
+                            if (pm.isEnabled && pm is ModuleLiftingSurface)
                             {
-                                pureLiftV += liftingSurface.liftForce;
-                                pureDragV += liftingSurface.dragForce;
+                                ModuleLiftingSurface liftingSurface = pm as ModuleLiftingSurface;
+                                if (!p.ShieldedFromAirstream)
+                                {
+                                    pureLiftV += liftingSurface.liftForce;
+                                    pureDragV += liftingSurface.dragForce;
+                                }
                             }
                         }
                     }
@@ -129,18 +203,18 @@ namespace JSI
                         Vector3 bodyLift = p.transform.rotation * (p.bodyLiftScalar * p.DragCubes.LiftForce);
                         bodyLift = Vector3.ProjectOnPlane(bodyLift, -p.dragVectorDir);
                         pureLiftV += bodyLift;
-                    }
 
-                    for (int m = 0; m < p.Modules.Count; m++)
-                    {
-                        PartModule pm = p.Modules[m];
-                        if (pm.isEnabled && pm is ModuleLiftingSurface)
+                        for (int m = 0; m < p.Modules.Count; m++)
                         {
-                            ModuleLiftingSurface liftingSurface = pm as ModuleLiftingSurface;
-                            if (!p.ShieldedFromAirstream)
+                            PartModule pm = p.Modules[m];
+                            if (pm.isEnabled && pm is ModuleLiftingSurface)
                             {
-                                pureLiftV += liftingSurface.liftForce;
-                                pureDragV += liftingSurface.dragForce;
+                                ModuleLiftingSurface liftingSurface = pm as ModuleLiftingSurface;
+                                if (!p.ShieldedFromAirstream)
+                                {
+                                    pureLiftV += liftingSurface.liftForce;
+                                    pureDragV += liftingSurface.dragForce;
+                                }
                             }
                         }
                     }
@@ -175,23 +249,23 @@ namespace JSI
                     Vector3 bodyLift = p.transform.rotation * (p.bodyLiftScalar * p.DragCubes.LiftForce);
                     bodyLift = Vector3.ProjectOnPlane(bodyLift, -p.dragVectorDir);
                     pureLiftV += bodyLift;
-                }
 
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule pm = p.Modules[m];
-                    if (!pm.isEnabled)
+                    for (int m = 0; m < p.Modules.Count; m++)
                     {
-                        continue;
-                    }
-
-                    if (pm is ModuleLiftingSurface)
-                    {
-                        ModuleLiftingSurface liftingSurface = (ModuleLiftingSurface)pm;
-                        if (p.ShieldedFromAirstream)
+                        PartModule pm = p.Modules[m];
+                        if (!pm.isEnabled)
+                        {
                             continue;
-                        pureLiftV += liftingSurface.liftForce;
-                        pureDragV += liftingSurface.dragForce;
+                        }
+
+                        if (pm is ModuleLiftingSurface)
+                        {
+                            ModuleLiftingSurface liftingSurface = (ModuleLiftingSurface)pm;
+                            if (p.ShieldedFromAirstream)
+                                continue;
+                            pureLiftV += liftingSurface.liftForce;
+                            pureDragV += liftingSurface.dragForce;
+                        }
                     }
                 }
             }
@@ -203,7 +277,7 @@ namespace JSI
             Vector3 force = pureDragV + pureLiftV;
             double drag = Vector3.Dot(force, -vessel.srf_velocity.normalized);
 
-            return drag > 0 ? Math.Sqrt(localGeeDirect / drag) * vessel.srfSpeed : 0.0;
+            return Math.Sqrt(localGeeDirect / drag) * vessel.srfSpeed;
         }
 
         /// <summary>

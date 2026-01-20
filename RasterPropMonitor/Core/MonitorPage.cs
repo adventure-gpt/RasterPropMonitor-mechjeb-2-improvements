@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -33,20 +33,25 @@ namespace JSI
         public readonly int pageNumber;
         public readonly string name = string.Empty;
         public readonly bool unlocker;
-        private const int INVALID_BUTTON = -1;
-        private string text;
+        private readonly string text;
         private StringProcessorFormatter[] spf;
-        private string[] outputLines;
-        bool allTextConstant;
+        private string processedText = string.Empty;
 
-        public string ProcessedText
+        public string Text
         {
-            get; private set;
+            get
+            {
+                return processedText;
+            }
         }
 
+        private bool isActive;
         public bool IsActive
         {
-            get; private set;
+            get
+            {
+                return isActive;
+            }
         }
 
         public readonly string textOverlay = string.Empty;
@@ -54,7 +59,7 @@ namespace JSI
         // A page is immutable if and only if it has only unchanging text and unchanging background and no handlers.
         public bool isMutable;
 
-        public enum BackgroundType
+        private enum BackgroundType
         {
             None,
             Texture,
@@ -65,7 +70,7 @@ namespace JSI
         public readonly int pageFont = 0;
         private readonly Texture2D overlayTexture, interlayTexture;
         public readonly Color defaultColor;
-        public readonly BackgroundType background = BackgroundType.None;
+        private readonly BackgroundType background = BackgroundType.None;
         private readonly Texture2D backgroundTexture;
         private readonly Func<int, int, string> pageHandlerMethod;
         private readonly Func<RenderTexture, float, bool> backgroundHandlerMethod;
@@ -81,8 +86,7 @@ namespace JSI
         private readonly MonoBehaviour backgroundHandlerModule, pageHandlerModule;
         private readonly List<string> techsRequired = new List<string>();
         private readonly string fallbackPageName = string.Empty;
-        private readonly int buttonNextPatch = INVALID_BUTTON;
-        private readonly int buttonPrevPatch = INVALID_BUTTON;
+
 
         private struct HandlerSupportMethods
         {
@@ -102,80 +106,44 @@ namespace JSI
 
             if (pageHandlerMethod != null)
             {
-                string newText = pageHandlerMethod(screenWidth, screenHeight);
+                processedText = pageHandlerMethod(screenWidth, screenHeight);
 
-                // if the text changed, we may need to recreate formatters
-                if (newText != text)
+                if (processedText.IndexOf("$&$", StringComparison.Ordinal) != -1)
                 {
-                    spf = null;
-                    allTextConstant = false;
-                    text = newText;
+                    // There are processed variables in here?
+                    StringBuilder bf = new StringBuilder();
+                    string[] linesArray = processedText.Split(JUtil.LineSeparator, StringSplitOptions.None);
+                    for (int i = 0; i < linesArray.Length; i++)
+                    {
+                        bf.AppendLine(StringProcessor.ProcessString(linesArray[i], rpmComp));
+                    }
+                    processedText = bf.ToString();
                 }
             }
-
-            if (!allTextConstant)
+            else
             {
-                if (text == null)
+                if (isMutable)
                 {
-                    text = string.Empty;
-                }
-
-                if (text.IndexOf(JUtil.VariableListSeparator[0]) == -1)
-                {
-                    ProcessedText = text;
-                    spf = null;
-                    outputLines = null;
-                    allTextConstant = true;
-                }
-                else
-                {
-                    // create the formatters if necessary
                     if (spf == null)
                     {
                         string[] linesArray = text.Split(JUtil.LineSeparator, StringSplitOptions.None);
                         spf = new StringProcessorFormatter[linesArray.Length];
-                        outputLines = new string[linesArray.Length];
-                        allTextConstant = true;
                         for (int i = 0; i < linesArray.Length; ++i)
                         {
                             spf[i] = new StringProcessorFormatter(linesArray[i], rpmComp);
-
-                            outputLines[i] = spf[i].cachedResult;
-
-                            if (spf[i].IsConstant)
-                            {
-                                spf[i] = null;
-                            }
-                            else
-                            {
-                                allTextConstant = false;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        for (int i = 0; i < spf.Length; i++)
-                        {
-                            if (spf[i] != null)
-                            {
-                                outputLines[i] = spf[i].GetFormattedString();
-                            }
                         }
                     }
 
-                    ProcessedText = string.Join(Environment.NewLine, outputLines);
+                    StringBuilder bf = new StringBuilder();
+                    for (int i = 0; i < spf.Length; i++)
+                    {
+                        bf.AppendLine(StringProcessor.ProcessString(spf[i], rpmComp));
+                    }
 
-                    if (allTextConstant)
-                    {
-                        spf = null;
-                        outputLines = null;
-                    }
-                    else
-                    {
-                        isMutable = true;
-                    }
+                    processedText = bf.ToString();
                 }
             }
+
         }
 
         public bool SwitchingPermitted(string destination)
@@ -361,6 +329,11 @@ namespace JSI
                 if (node.HasValue("text"))
                 {
                     text = JUtil.LoadPageDefinition(node.GetValue("text"));
+                    isMutable |= text.IndexOf("$&$", StringComparison.Ordinal) != -1;
+                    if (!isMutable)
+                    {
+                        processedText = text;
+                    }
                 }
                 else
                 {
@@ -435,16 +408,6 @@ namespace JSI
                 }
             }
 
-            int intValue = INVALID_BUTTON;
-            if (node.TryGetValue("buttonNextPatch", ref intValue))
-            {
-                buttonNextPatch = intValue;
-            }
-
-            if (node.TryGetValue("buttonPrevPatch", ref intValue))
-            {
-                buttonPrevPatch = intValue;
-            }
         }
 
         private static MethodInfo InstantiateHandler(ConfigNode node, RasterPropMonitor ourMonitor, out MonoBehaviour moduleInstance, out HandlerSupportMethods support)
@@ -620,7 +583,7 @@ namespace JSI
 
         public void Active(bool state)
         {
-            IsActive = state;
+            isActive = state;
             if (pageHandlerS.activate != null)
             {
                 pageHandlerS.activate(state, pageNumber);
@@ -634,7 +597,7 @@ namespace JSI
         public bool GlobalButtonClick(int buttonID)
         {
             buttonID = redirectGlobals[buttonID] ?? buttonID;
-            if (buttonID == INVALID_BUTTON)
+            if (buttonID == -1)
             {
                 return false;
             }
@@ -648,16 +611,6 @@ namespace JSI
             {
                 backgroundHandlerS.buttonClick(buttonID);
                 actionTaken = true;
-            }
-            if (buttonID == buttonNextPatch)
-            {
-                ourMonitor.SelectNextPatch();
-                actionTaken = true;
-            }
-            if (buttonID == buttonPrevPatch)
-            {
-                ourMonitor.SelectPreviousPatch();
-                actionTaken = true; 
             }
             return actionTaken;
         }

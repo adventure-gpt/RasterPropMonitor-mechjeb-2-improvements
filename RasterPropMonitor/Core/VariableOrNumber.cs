@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -18,53 +18,24 @@
  * You should have received a copy of the GNU General Public License
  * along with RasterPropMonitor.  If not, see <http://www.gnu.org/licenses/>.
  ****************************************************************************/
-using System;
 using System.Collections.Generic;
 using UnityEngine;
-using static JSI.RasterPropMonitorComputer;
-
 namespace JSI
 {
-    enum VariableUpdateType
-    {
-        Volatile, // variable must be re-evaluated every time it's accessed
-        PerFrame, // variable is re-evaluated once per frame and cached (this is default)
-        Pushed,   // variable is re-evaluated on demand by an external system (e.g. persistent variables)
-        Constant, // variable is evaluated once on first use
-    }
-
-    /// <summary>
-    /// This is the class that individual modules use to access the variable
-    /// It's owned by the VariableCache instances inside the RasterPropMonitorComputer
-    /// This architecture is kind of strange; this could probably be unified with VariableCache
-    /// </summary>
     public class VariableOrNumber
     {
         internal readonly string variableName;
-        private double numericValue;
-        private string stringValue;
+        internal double numericValue;
+        internal string stringValue;
         internal bool isNumeric;
-        internal VariableUpdateType updateType;
         private readonly RasterPropMonitorComputer rpmComp;
-
-        internal NumericVariableEvaluator numericEvaluator;
-        internal VariableEvaluator evaluator;
-        internal event Action<float> onChangeCallbacks;
-        internal event Action<bool> onResourceDepletedCallbacks;
-
-        public bool isConstant => updateType == VariableUpdateType.Constant;
-
-        internal void FireCallbacks(float newValue)
+        internal VoNType variableType = VoNType.Invalid;
+        internal enum VoNType
         {
-            if (onChangeCallbacks != null)
-            {
-                onChangeCallbacks(newValue);
-            }
-
-            if (onResourceDepletedCallbacks != null)
-            {
-                onResourceDepletedCallbacks.Invoke(newValue < 0.01f);
-            }
+            Invalid,
+            ConstantNumeric,
+            ConstantString,
+            VariableValue,
         }
 
         /// <summary>
@@ -73,82 +44,48 @@ namespace JSI
         /// <param name="input">The name of the variable</param>
         /// <param name="cacheable">Whether the variable is cacheable</param>
         /// <param name="rpmComp">The RasterPropMonitorComputer that owns the variable</param>
-        internal VariableOrNumber(string input, VariableEvaluator evaluator, RPMVesselComputer vesselComp, VariableUpdateType updateType, RasterPropMonitorComputer rpmComp_)
+        internal VariableOrNumber(string input, bool cacheable, RasterPropMonitorComputer rpmComp_)
         {
-            variableName = input;
-            this.updateType = updateType;
-            rpmComp = rpmComp_; // will be null if this variable is cacheable
-            this.evaluator = evaluator;
-
-            if (evaluator == null)
+            string varName = input.Trim();
+            if (varName == "MetersToFeet")
             {
-                updateType = VariableUpdateType.Constant;
-                stringValue = input;
+                varName = RPMGlobals.MetersToFeet.ToString();
+            }
+            else if (varName == "MetersPerSecondToKnots")
+            {
+                varName = RPMGlobals.MetersPerSecondToKnots.ToString();
+            }
+            else if (varName == "MetersPerSecondToFeetPerMinute")
+            {
+                varName = RPMGlobals.MetersPerSecondToFeetPerMinute.ToString();
+            }
+
+            float realValue;
+            if (float.TryParse(varName, out realValue))
+            {
+                // If it's a numeric value, let's canonicalize it using
+                // ToString, so we don't have duplicates that evaluate to the
+                // same value (eg, 1.0, 1, 1.00, etc).
+                variableName = realValue.ToString();
+                numericValue = realValue;
+                isNumeric = true;
+                variableType = VoNType.ConstantNumeric;
+            }
+            else if (input[0] == '$')
+            {
+                variableName = input;
+                stringValue = input.Substring(1).Trim();
                 isNumeric = false;
-                rpmComp = null;
+                variableType = VoNType.ConstantString;
             }
             else
             {
-                object value = evaluator(vesselComp);
+                variableName = varName;
+                variableType = VoNType.VariableValue;
 
-                if (value is string str)
+                if (!cacheable)
                 {
-                    stringValue = str;
-                    isNumeric = false;
-                }
-                else
-                {
-                    stringValue = value.ToString();
-                    numericValue = value.MassageToDouble();
-                    isNumeric = true;
-                }
-            }
-        }
-
-        internal VariableOrNumber(string input, NumericVariableEvaluator evaluator, RPMVesselComputer vesselComp, VariableUpdateType updateType, RasterPropMonitorComputer rpmComp_)
-        {
-            variableName = input;
-            this.updateType = updateType;
-            rpmComp = rpmComp_; // will be null if this variable is cacheable
-            this.numericEvaluator = evaluator;
-
-            double value = evaluator(vesselComp);
-
-            numericValue = value.MassageToDouble();
-            isNumeric = true;
-        }
-
-        void UpdateNumericValue(double newVal)
-        {
-            double oldVal = numericValue;
-            isNumeric = true;
-            numericValue = newVal;
-
-            if (JUtil.ValueChanged(oldVal, newVal))
-            {
-                FireCallbacks((float)newVal);
-            }
-        }
-
-        public void Update(RPMVesselComputer comp)
-        {
-            if (numericEvaluator != null)
-            {
-                double newVal = numericEvaluator(comp);
-                UpdateNumericValue(newVal);
-            }
-            else
-            {
-                object evaluant = evaluator(comp);
-
-                if (evaluant is string str)
-                {
-                    isNumeric = false;
-                    stringValue = str;
-                }
-                else
-                {
-                    UpdateNumericValue(evaluant.MassageToDouble());
+                    rpmComp = rpmComp_;
                 }
             }
         }
@@ -159,14 +96,9 @@ namespace JSI
         /// <returns></returns>
         public float AsFloat()
         {
-            if (updateType == VariableUpdateType.Volatile)
+            if (rpmComp != null)
             {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(rpmComp.vessel);
-                if (numericEvaluator != null)
-                {
-                    return (float)numericEvaluator(comp);
-                }
-                return evaluator(comp).MassageToFloat();
+                return rpmComp.ProcessVariable(variableName, null).MassageToFloat();
             }
             else
             {
@@ -180,14 +112,9 @@ namespace JSI
         /// <returns></returns>
         public double AsDouble()
         {
-            if (updateType == VariableUpdateType.Volatile)
+            if (rpmComp != null)
             {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(rpmComp.vessel);
-                if (numericEvaluator != null)
-                {
-                    return numericEvaluator(comp);
-                }
-                return evaluator(comp).MassageToDouble();
+                return rpmComp.ProcessVariable(variableName, null).MassageToDouble();
             }
             else
             {
@@ -201,14 +128,9 @@ namespace JSI
         /// <returns></returns>
         public int AsInt()
         {
-            if (updateType == VariableUpdateType.Volatile)
+            if (rpmComp != null)
             {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(rpmComp.vessel);
-                if (numericEvaluator != null)
-                {
-                    return (int)numericEvaluator(comp);
-                }
-                return evaluator(comp).MassageToInt();
+                return rpmComp.ProcessVariable(variableName, null).MassageToInt();
             }
             else
             {
@@ -222,14 +144,9 @@ namespace JSI
         /// <returns></returns>
         public object Get()
         {
-            if (updateType == VariableUpdateType.Volatile)
+            if (rpmComp != null)
             {
-                RPMVesselComputer comp = RPMVesselComputer.Instance(rpmComp.vessel);
-                if (numericEvaluator != null)
-                {
-                    return numericEvaluator(comp);
-                }
-                return evaluator(comp);
+                return rpmComp.ProcessVariable(variableName, null);
             }
             else if (isNumeric)
             {
@@ -262,11 +179,11 @@ namespace JSI
             }
         }
 
-        public double rawValue
+        public float rawValue
         {
             get
             {
-                return sourceValue.AsDouble();
+                return sourceValue.AsFloat();
             }
         }
 

@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -19,15 +19,13 @@
  * along with RasterPropMonitor.  If not, see <http://www.gnu.org/licenses/>.
  ****************************************************************************/
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using Expansions.Missions;
-using KSP.UI.Screens.Flight;
 using UnityEngine;
-using UnityEngine.Profiling;
 
 namespace JSI
 {
@@ -104,49 +102,13 @@ namespace JSI
             {
                 switch (type)
                 {
+                    case VesselType.Base:
+                        x = 2;
+                        y = 0;
+                        break;
                     case VesselType.Debris:
                         x = 1;
                         y = 3;
-                        break;
-                    case VesselType.SpaceObject:
-                        x = 4;
-                        y = 1;
-                        break;
-                    case VesselType.Unknown:
-                        x = 3;
-                        y = 3;
-                        break;
-                    case VesselType.Probe:
-                        x = 1;
-                        y = 0;
-                        break;
-					case VesselType.Relay:
-						x = 4;
-						y = 3;
-						break;
-                    case VesselType.Rover:
-                        x = 0;
-                        y = 0;
-                        break;
-                    case VesselType.Lander:
-                        x = 3;
-                        y = 0;
-                        break;
-                    case VesselType.Ship:
-                        x = 0;
-                        y = 3;
-						break;
-					case VesselType.Plane:
-						x = 4;
-						y = 4;
-						break;
-                    case VesselType.Station:
-                        x = 3;
-                        y = 1;
-                        break;
-					case VesselType.Base:
-                        x = 2;
-                        y = 0;
                         break;
                     case VesselType.EVA:
                         x = 2;
@@ -156,8 +118,36 @@ namespace JSI
                         x = 4;
                         y = 0;
                         break;
-                    default:
+                    case VesselType.Lander:
+                        x = 3;
+                        y = 0;
+                        break;
+                    case VesselType.Probe:
+                        x = 1;
+                        y = 0;
+                        break;
+                    case VesselType.Rover:
+                        x = 0;
+                        y = 0;
+                        break;
+                    case VesselType.Ship:
+                        x = 0;
+                        y = 3;
+                        break;
+                    case VesselType.Station:
+                        x = 3;
+                        y = 1;
+                        break;
+                    case VesselType.Unknown:
+                        x = 3;
+                        y = 3;
+                        break;
+                    case VesselType.SpaceObject:
                         x = 4;
+                        y = 1;
+                        break;
+                    default:
+                        x = 3;
                         y = 2;
                         break;
                 }
@@ -306,23 +296,6 @@ namespace JSI
             }
         }
 
-        internal static void Swap<T>(ref T a, ref T b)
-        {
-            T temp = a;
-            a = b;
-            b = temp;
-        }
-
-        // https://forum.unity.com/threads/camera-render-seems-to-trigger-canvas-sendwillrendercanvases.462099/
-        static FieldInfo canvasHackField = typeof(Canvas).GetField("willRenderCanvases", BindingFlags.NonPublic | BindingFlags.Static);
-        internal static void RenderTextureCamera(Camera camera)
-        {
-            var canvasHackObject = canvasHackField.GetValue(null);
-            canvasHackField.SetValue(null, null);
-            camera.Render();
-            canvasHackField.SetValue(null, canvasHackObject);
-        }
-
         /// <summary>
         /// Parse a config file color string into a Color32.  The colorString
         /// parameter is a sequnce of R, G, B, A (ranging [0,255]), or it is a
@@ -332,12 +305,13 @@ namespace JSI
         /// table.
         /// </summary>
         /// <param name="colorString">The color string to parse.</param>
+        /// <param name="part">The part containing the prop that is asking for
+        /// the color parsing.</param>
         /// <param name="rpmComp">The rpmComp for the specified part; if null,
         /// ParseColor32 looks up the RPMC module.</param>
-        /// 
         /// <returns>Color32; white if colorString is empty, obnoxious magenta
         /// if an unknown COLOR_ string is provided.</returns>
-        internal static Color32 ParseColor32(string colorString, RasterPropMonitorComputer rpmComp)
+        internal static Color32 ParseColor32(string colorString, Part part, ref RasterPropMonitorComputer rpmComp)
         {
             if (string.IsNullOrEmpty(colorString))
             {
@@ -347,9 +321,20 @@ namespace JSI
             colorString = colorString.Trim();
             if (colorString.StartsWith("COLOR_"))
             {
-                if (rpmComp != null && rpmComp.overrideColors.ContainsKey(colorString))
+                if (part != null)
                 {
-                    return rpmComp.overrideColors[colorString];
+                    if (rpmComp == null)
+                    {
+                        rpmComp = RasterPropMonitorComputer.Instantiate(part, false);
+                    }
+
+                    if (rpmComp != null)
+                    {
+                        if (rpmComp.overrideColors.ContainsKey(colorString))
+                        {
+                            return rpmComp.overrideColors[colorString];
+                        }
+                    }
                 }
 
                 if (globalColors.ContainsKey(colorString))
@@ -383,15 +368,6 @@ namespace JSI
                     }
                 }
             }
-        }
-
-        public static bool ValueChanged(double oldValue, double newValue)
-        {
-            if (double.IsNaN(oldValue) != double.IsNaN(newValue) || Math.Abs(newValue - oldValue) > 1e-4)
-            {
-                return true;
-            }
-            return false;
         }
 
         public static Vector3d SwizzleXZY(this Vector3d vector)
@@ -458,7 +434,7 @@ namespace JSI
             Kerbal thatKerbal = CameraManager.Instance.IVACameraActiveKerbal;
             if (thatKerbal != null)
             {
-                return CameraManager.Instance.activeInternalPart == thisPart;
+                return thatKerbal.InPart == thisPart;
             }
             else
             {
@@ -477,11 +453,29 @@ namespace JSI
             Kerbal activeKerbal = CameraManager.Instance.IVACameraActiveKerbal;
             if (activeKerbal != null)
             {
-                return (CameraManager.Instance.activeInternalPart == thisPart) ? activeKerbal.protoCrewMember.seatIdx : -1;
+                return (activeKerbal.InPart == thisPart) ? activeKerbal.protoCrewMember.seatIdx : -1;
             }
             else
             {
                 return -1;
+            }
+        }
+
+        /// <summary>
+        /// Return a reference to the active kerbal in the current part.
+        /// </summary>
+        /// <param name="thisPart"></param>
+        /// <returns></returns>
+        public static Kerbal FindCurrentKerbal(this Part thisPart)
+        {
+            Kerbal activeKerbal = CameraManager.Instance.IVACameraActiveKerbal;
+            if (activeKerbal != null)
+            {
+                return (activeKerbal.InPart == thisPart) ? activeKerbal : null;
+            }
+            else
+            {
+                return null;
             }
         }
 
@@ -499,12 +493,11 @@ namespace JSI
 
         public static Camera GetCameraByName(string name)
         {
-            Camera[] allCameras = Camera.allCameras;
-            for (int i = 0; i < allCameras.Length; ++i)
+            for (int i = 0; i < Camera.allCamerasCount; ++i)
             {
-                if (allCameras[i].name == name)
+                if (Camera.allCameras[i].name == name)
                 {
-                    return allCameras[i];
+                    return Camera.allCameras[i];
                 }
             }
             return null;
@@ -542,10 +535,9 @@ namespace JSI
 
         internal static bool DoesCameraExist(string name)
         {
-            Camera[] allCameras = Camera.allCameras;
-            for (int i = 0; i < allCameras.Length; ++i)
+            for (int i = 0; i < Camera.allCamerasCount; ++i)
             {
-                if (allCameras[i].name == name)
+                if (Camera.allCameras[i].name == name)
                 {
                     return true;
                 }
@@ -626,7 +618,7 @@ namespace JSI
                     currentPart = thatKerbal.InPart;
                 }
 
-                if (currentPart == null && CameraManager.Instance.currentCameraMode == CameraManager.CameraMode.Internal)
+                if (currentPart == null)
                 {
                     Transform internalCameraTransform = InternalCamera.Instance.transform;
                     foreach (Part thisPart in InternalModelParts(vessel))
@@ -679,13 +671,13 @@ namespace JSI
             }
         }
 
-        public static bool RasterPropMonitorShouldUpdate(Part part)
+        public static bool RasterPropMonitorShouldUpdate(Vessel thatVessel)
         {
             if (HighLogic.LoadedSceneIsFlight)
             {
-                if (IsActiveVessel(part.vessel))
+                if (IsActiveVessel(thatVessel))
                 {
-                    return UserIsInPod(part) || StockOverlayCamIsOn();
+                    return (IsInIVA() || StockOverlayCamIsOn());
                 }
                 else
                 {
@@ -714,10 +706,12 @@ namespace JSI
             // ... but now it can't because we're doing transparent pods, so we need a more complicated way to find which pod the player is in.
             return HighLogic.LoadedSceneIsFlight && IsActiveVessel(thatVessel) && IsInIVA();
         }
-        
+
         public static bool StockOverlayCamIsOn()
         {
-            return KerbalPortraitGallery.isIVAOverlayVisible;
+            Camera stockOverlayCamera = JUtil.GetCameraByName("InternalSpaceOverlay Host");
+
+            return (stockOverlayCamera != null);
         }
 
         public static bool UserIsInPod(Part thisPart)
@@ -745,11 +739,20 @@ namespace JSI
             // There still remains an option of InternalCamera which we will now sort out.
             if (CameraManager.Instance.currentCameraMode == CameraManager.CameraMode.Internal)
             {
-                var internalModel = InternalCamera.Instance.GetComponentInParent<InternalModel>();
-
-                if (internalModel != null)
+                // So we're watching through an InternalCamera. Which doesn't record which pod we're in anywhere, like with kerbals.
+                // But we know that if the camera's transform parent is somewhere in our pod, it's us.
+                // InternalCamera.Instance.transform.parent is the transform the camera is attached to that is on either a prop or the internal itself.
+                // The problem is figuring out if it's in our pod, or in an identical other pod.
+                // Unfortunately I don't have anything smarter right now than get a list of all transforms in the internal and cycle through it.
+                // This is a more annoying computation than looking through every kerbal in a pod (there's only a few of those,
+                // but potentially hundreds of transforms) and might not even be working as I expect. It needs testing.
+                Transform[] componentTransforms = thisPart.internalModel.GetComponentsInChildren<Transform>();
+                foreach (Transform thisTransform in componentTransforms)
                 {
-                    return thisPart == internalModel.part;
+                    if (thisTransform == InternalCamera.Instance.transform.parent)
+                    {
+                        return true;
+                    }
                 }
             }
 
@@ -920,9 +923,8 @@ namespace JSI
         public static FXGroup SetupIVASound(InternalProp thatProp, string buttonClickSound, float buttonClickVolume, bool loopState)
         {
             FXGroup audioOutput = null;
-            if (!string.IsNullOrEmpty(buttonClickSound))
+            if (!string.IsNullOrEmpty(buttonClickSound.EnforceSlashes()))
             {
-                buttonClickSound = buttonClickSound.EnforceSlashes();
                 audioOutput = new FXGroup("RPM" + thatProp.propID);
                 audioOutput.audio = thatProp.gameObject.AddComponent<AudioSource>();
                 audioOutput.audio.clip = GameDatabase.Instance.GetAudioClip(buttonClickSound);
@@ -1040,13 +1042,6 @@ namespace JSI
                 return angle + 2 * Math.PI;
             return angle;
         }
-
-        public static double ClampRadiansPi(double angle)
-        {
-            angle = ClampRadiansTwoPi(angle);
-            if (angle > Math.PI) angle -= 2.0f * Math.PI;
-            return angle;
-        }
         //acosh(x) = log(x + sqrt(x^2 - 1))
         public static double Acosh(double x)
         {
@@ -1112,19 +1107,41 @@ namespace JSI
             return "Space over " + thatVessel.mainBody.bodyName;
         }
 
-        public static Vector3d ClosestApproachSrfOrbit(Orbit vesselOrbit, Vessel target, out double UT, out double distance)
+
+        // Pseudo-orbit for closest approach to a landed object
+        public static Orbit OrbitFromSurfacePos(CelestialBody body, double lat, double lon, double alt, double UT)
         {
-            CelestialBody body = target.mainBody;
+            double t0 = Planetarium.GetUniversalTime();
+            double angle = body.rotates ? (UT - t0) * 360.0 / body.rotationPeriod : 0;
 
-            // longitude and latitude calculations are offset by a different amount every
-            // time we load the scene. We can use a zero latitude/longitude to find out what
-            // that offset is.
-            Vector3d zeroPos = body.GetRelSurfacePosition(0, 0, 0);
-            body.GetLatLonAltOrbital(zeroPos, out var zeroLat, out var zeroLon, out var _);
+            double LAN = (lon + body.rotationAngle + angle - 90.0) % 360.0;
+            Orbit orbit = new Orbit(lat, 0, body.Radius + alt, LAN, 90.0, 0, UT, body);
 
-            Vector3d pos = body.GetRelSurfacePosition(target.latitude - zeroLat, target.longitude - zeroLon, target.altitude);
+            orbit.pos = orbit.getRelativePositionAtT(0);
+            if (body.rotates)
+                orbit.vel = Vector3d.Cross(body.zUpAngularVelocity, -orbit.pos);
+            else
+                orbit.vel = orbit.getOrbitalVelocityAtObT(Time.fixedDeltaTime);
+            orbit.h = Vector3d.Cross(orbit.pos, orbit.vel);
+
+            orbit.StartUT = t0;
+            orbit.EndUT = UT + orbit.period;
+            if (body.rotates)
+                orbit.period = body.rotationPeriod;
+            orbit.patchEndTransition = Orbit.PatchTransitionType.FINAL;
+            return orbit;
+        }
+
+        public static Orbit ClosestApproachSrfOrbit(Orbit vesselOrbit, Vessel target, out double UT, out double distance)
+        {
+            return ClosestApproachSrfOrbit(vesselOrbit, target.mainBody, target.latitude, target.longitude, target.altitude, out UT, out distance);
+        }
+
+        public static Orbit ClosestApproachSrfOrbit(Orbit vesselOrbit, CelestialBody body, double lat, double lon, double alt, out double UT, out double distance)
+        {
+            Vector3d pos = body.GetRelSurfacePosition(lat, lon, alt);
             distance = GetClosestApproach(vesselOrbit, body, pos, out UT);
-            return pos;
+            return OrbitFromSurfacePos(body, lat, lon, alt, UT);
         }
 
         public static double GetClosestApproach(Orbit vesselOrbit, ITargetable target, out double timeAtClosestApproach)
@@ -1149,7 +1166,7 @@ namespace JSI
                 if (targetVessel.LandedOrSplashed)
                 {
                     double closestApproach;
-                    ClosestApproachSrfOrbit(vesselOrbit, targetVessel, out timeAtClosestApproach, out closestApproach);
+                    Orbit targetOrbit = JUtil.ClosestApproachSrfOrbit(vesselOrbit, targetVessel, out timeAtClosestApproach, out closestApproach);
                     return closestApproach;
                 }
                 else
@@ -1335,19 +1352,12 @@ namespace JSI
 
         public static string UnMangleConfigText(this string input)
         {
-            return input
-                .Replace("<=", "{")
-                .Replace("=>", "}")
-                .Replace("$$$", Environment.NewLine);
+            return input.Replace("<=", "{").Replace("=>", "}").Replace("$$$", Environment.NewLine);
         }
 
         public static string MangleConfigText(this string input)
         {
-            return input
-                .Replace("{", "<=")
-                .Replace("}", "=>")
-                .Replace("\n", "$$$")
-                .Replace("\r", string.Empty);
+            return input.Replace("{", "<=").Replace("}", "=>").Replace(Environment.NewLine, "$$$");
         }
 
         public static T Clamp<T>(this T val, T min, T max) where T : IComparable<T>
@@ -1393,14 +1403,14 @@ namespace JSI
         public static float MassageToFloat(this object thatValue)
         {
             // RPMC only produces doubles, floats, ints, bools, and strings.
-            if (thatValue is float floatVal)
-                return floatVal;
-            if (thatValue is double doubleVal)
-                return (float)doubleVal;
-            if (thatValue is int intVal)
-                return (float)intVal;
-            if (thatValue is bool boolVal)
-                return boolVal ? 1.0f : 0.0f;
+            if (thatValue is float)
+                return (float)thatValue;
+            if (thatValue is double)
+                return (float)(double)thatValue;
+            if (thatValue is int)
+                return (float)(int)thatValue;
+            if (thatValue is bool)
+                return (float)(((bool)thatValue).GetHashCode());
             return float.NaN;
         }
 
@@ -1412,14 +1422,14 @@ namespace JSI
         public static int MassageToInt(this object thatValue)
         {
             // RPMC only produces doubles, floats, ints, bools, and strings.
-            if (thatValue is int intVal)
-                return intVal;
-            if (thatValue is double doubleVal)
-                return (int)doubleVal;
-            if (thatValue is float floatVal)
-                return (int)floatVal;
-            if (thatValue is bool boolVal)
-                return boolVal ? 1 : 0;
+            if (thatValue is int)
+                return (int)thatValue;
+            if (thatValue is double)
+                return (int)(double)thatValue;
+            if (thatValue is float)
+                return (int)(float)thatValue;
+            if (thatValue is bool)
+                return ((bool)thatValue).GetHashCode();
             return 0;
         }
 
@@ -1431,29 +1441,21 @@ namespace JSI
         public static double MassageToDouble(this object thatValue)
         {
             // RPMC only produces doubles, floats, ints, bools, and strings.
-            if (thatValue is double doubleVal)
-                return doubleVal;
-            if (thatValue is float floatVal)
-                return (double)floatVal;
-            if (thatValue is int intVal)
-                return (double)intVal;
-            if (thatValue is bool boolVal)
-                return boolVal ? 1.0 : 0.0;
+            if (thatValue is double)
+                return (double)thatValue;
+            if (thatValue is float)
+                return (double)(float)thatValue;
+            if (thatValue is int)
+                return (double)(int)thatValue;
+            if (thatValue is bool)
+                return (double)(((bool)thatValue).GetHashCode());
             return double.NaN;
         }
 
-        internal static InternalModule FindInternalModuleByName(InternalProp prop, string className)
-        {
-            foreach (InternalModule potentialModule in prop.internalModules)
-            {
-                if (potentialModule.ClassName == className)
-                {
-                    return potentialModule;
-                }
-            }
-
-            return null;
-        }
+        //public static bool ReturnFalse()
+        //{
+        //    return false;
+        //}
 
         internal static Delegate GetMethod(string packedMethod, InternalProp internalProp, Type delegateType)
         {
@@ -1467,26 +1469,26 @@ namespace JSI
             moduleName = tokens[0];
             stateMethod = tokens[1];
 
-            // First look on the prop
-            InternalModule thatModule = FindInternalModuleByName(internalProp, moduleName);
-            
-            // then on the internal as a whole
-            if (thatModule == null)
+            InternalModule thatModule = null;
+            foreach (InternalModule potentialModule in internalProp.internalModules)
             {
-                foreach (var prop in internalProp.internalModel.props)
+                if (potentialModule.ClassName == moduleName)
                 {
-                    // this really means "was this a MODULE placed directly in the INTERNAL"
-                    if (!prop.hasModel)
-                    {
-                        thatModule = FindInternalModuleByName(prop, moduleName);
-                        if (thatModule != null)
-                        {
-                            break;
-                        }
-                    }
+                    thatModule = potentialModule;
+                    break;
                 }
             }
 
+            if (thatModule == null)
+            {
+                // The module hasn't been instantiated on this part, so let's do so now.
+                // MOARdV TODO: This actually causes an exception, because
+                // it's added during InternalProp.OnUpdate.  One thing I could
+                // do is add the internal modules when I instantiate RPMC.
+                var handlerConfiguration = new ConfigNode("MODULE");
+                handlerConfiguration.SetValue("name", moduleName, true);
+                thatModule = internalProp.AddModule(handlerConfiguration);
+            }
             if (thatModule == null)
             {
                 JUtil.LogErrorMessage(internalProp, "Failed finding module {0} for method {1}", moduleName, stateMethod);
@@ -1543,51 +1545,6 @@ namespace JSI
                 return loadedFonts["LiberationSans-Regular"];
             }
         }
-
-        internal static Transform FindPropTransform(InternalProp prop, string nameOrPath)
-        {
-            if (nameOrPath == null)
-            {
-                return null;
-            }
-            else if (nameOrPath.IndexOf('/') == -1)
-            {
-                if (prop.hasModel)
-                {
-                    return InternalProp.FindHeirarchyTransform(prop.transform.Find("model"), nameOrPath);
-                }
-                else
-                {
-                    return prop.internalModel.FindModelTransform(nameOrPath);
-                }
-            }
-            else
-            {
-                return prop.transform.Find(nameOrPath);
-            }
-        }
-
-        internal static Transform FindPropTransformOrThrow(InternalProp prop, string nameOrPath)
-        {
-            Transform result = FindPropTransform(prop, nameOrPath);
-            if (result == null)
-            {
-                throw new ArgumentException($"could not find transform '{nameOrPath}' in prop {prop.propName}");
-            }
-            return result;
-        }
-
-        internal static Transform FindInternalTransform(InternalModel model, string nameOrPath)
-        {
-            if (nameOrPath.IndexOf('/') == -1)
-            {
-                return model.FindModelTransform(nameOrPath);
-            }
-            else
-            {
-                return model.transform.Find(nameOrPath);
-            }
-        }
     }
 
     // This, instead, is a static class on it's own because it needs its private static variables.
@@ -1618,11 +1575,578 @@ namespace JSI
         }
     }
 
-    public static class TEnum
+    // This handy class is also from MechJeb.
+    //A simple wrapper around a Dictionary, with the only change being that
+    //accessing the value of a nonexistent key returns a default value instead of an error.
+    class DefaultableDictionary<TKey, TValue> : IDictionary<TKey, TValue>
     {
-        public static EnumType[] GetValues<EnumType>() where EnumType : Enum
+        readonly Dictionary<TKey, TValue> d = new Dictionary<TKey, TValue>();
+        readonly TValue defaultValue;
+
+        public DefaultableDictionary(TValue defaultValue)
         {
-            return (EnumType[])Enum.GetValues(typeof(EnumType));
+            this.defaultValue = defaultValue;
+        }
+
+        public TValue this[TKey key]
+        {
+            get
+            {
+                return d.ContainsKey(key) ? d[key] : defaultValue;
+            }
+            set
+            {
+                if (d.ContainsKey(key))
+                    d[key] = value;
+                else
+                    d.Add(key, value);
+            }
+        }
+
+        public void Add(TKey key, TValue value)
+        {
+            d.Add(key, value);
+        }
+
+        public bool ContainsKey(TKey key)
+        {
+            return d.ContainsKey(key);
+        }
+
+        public ICollection<TKey> Keys { get { return d.Keys; } }
+
+        public bool Remove(TKey key)
+        {
+            return d.Remove(key);
+        }
+
+        public bool TryGetValue(TKey key, out TValue value)
+        {
+            return d.TryGetValue(key, out value);
+        }
+
+        public ICollection<TValue> Values { get { return d.Values; } }
+
+        public void Add(KeyValuePair<TKey, TValue> item)
+        {
+            ((IDictionary<TKey, TValue>)d).Add(item);
+        }
+
+        public void Clear()
+        {
+            d.Clear();
+        }
+
+        public bool Contains(KeyValuePair<TKey, TValue> item)
+        {
+            return ((IDictionary<TKey, TValue>)d).Contains(item);
+        }
+
+        public void CopyTo(KeyValuePair<TKey, TValue>[] array, int arrayIndex)
+        {
+            ((IDictionary<TKey, TValue>)d).CopyTo(array, arrayIndex);
+        }
+
+        public int Count { get { return d.Count; } }
+
+        public bool IsReadOnly { get { return ((IDictionary<TKey, TValue>)d).IsReadOnly; } }
+
+        public bool Remove(KeyValuePair<TKey, TValue> item)
+        {
+            return ((IDictionary<TKey, TValue>)d).Remove(item);
+        }
+
+        public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
+        {
+            return d.GetEnumerator();
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+        {
+            return ((System.Collections.IEnumerable)d).GetEnumerator();
+        }
+    }
+
+    /// <summary>
+    /// The RPMShaderLoader is a run-once class that is executed when KSP
+    /// reaches the main menu.  Its purpose is to parse rasterpropmonitor.ksp
+    /// and fetch the shaders embedded in there.  Those shaders are stored in
+    /// a dictionary in JUtil.  In addition, other config assets are parsed
+    /// and stored (primarily values found in the RPMVesselComputer).
+    /// </summary>
+    [KSPAddon(KSPAddon.Startup.MainMenu, true)]
+    public class RPMShaderLoader : MonoBehaviour
+    {
+        RPMShaderLoader()
+        {
+            // I don't want this object destroyed on scene change, since the database
+            // loader coroutine can take a while to run to completion.  Eventually,
+            // I may add smarts so database reloads get handled, too.
+            DontDestroyOnLoad(this);
+        }
+
+        private void LoadAssets()
+        {
+            // KSPUtil.ApplicationRootPath may contain "../" which doesn't work well with LoadFromFile
+            String assetsPath = System.IO.Path.GetFullPath(KSPUtil.ApplicationRootPath + "GameData/JSI/RasterPropMonitor/");
+            
+            // Try platform-specific bundle first (original RPM naming)
+            String shaderAssetBundleName = "rasterpropmonitor";
+            if (Application.platform == RuntimePlatform.WindowsPlayer)
+            {
+                shaderAssetBundleName += "-windows";
+            }
+            else if (Application.platform == RuntimePlatform.LinuxPlayer)
+            {
+                shaderAssetBundleName += "-linux";
+            }
+            else if (Application.platform == RuntimePlatform.OSXPlayer)
+            {
+                shaderAssetBundleName += "-osx";
+            }
+            shaderAssetBundleName += ".assetbundle";
+
+            string shaderBundlePath = assetsPath + shaderAssetBundleName;
+            JUtil.LogInfo(this, "Loading shader bundle from: {0}", shaderBundlePath);
+            AssetBundle bundle = AssetBundle.LoadFromFile(shaderBundlePath);
+
+            // Fall back to FirstPersonKSP unified shader bundle naming (platform-agnostic)
+            if (bundle == null)
+            {
+                shaderBundlePath = assetsPath + "rasterpropmonitor-shaders.assetbundle";
+                JUtil.LogInfo(this, "Trying unified shader bundle: {0}", shaderBundlePath);
+                bundle = AssetBundle.LoadFromFile(shaderBundlePath);
+            }
+
+            if (bundle == null)
+            {
+                JUtil.LogErrorMessage(this, "Unable to load shader AssetBundle from {0}", assetsPath);
+                return;
+            }
+
+            JUtil.parsedShaders.Clear();
+
+            string[] assetNames = bundle.GetAllAssetNames();
+            int len = assetNames.Length;
+
+            Shader shader;
+            for (int i = 0; i < len; i++)
+            {
+                if (assetNames[i].EndsWith(".shader"))
+                {
+                    shader = bundle.LoadAsset<Shader>(assetNames[i]);
+                    if (!shader.isSupported)
+                    {
+                        JUtil.LogErrorMessage(this, "Shader {0} - unsupported in this configuration", shader.name);
+                    }
+                    JUtil.parsedShaders[shader.name] = shader;
+                }
+            }
+
+            bundle.Unload(false);
+
+            string fontAssetBundleName = "rasterpropmonitor-font.assetbundle";
+            string fontBundlePath = assetsPath + fontAssetBundleName;
+            JUtil.LogInfo(this, "Loading font bundle from: {0}", fontBundlePath);
+            bundle = AssetBundle.LoadFromFile(fontBundlePath);
+
+            if (bundle == null)
+            {
+                JUtil.LogErrorMessage(this, "Unable to load font AssetBundle from {0}", fontBundlePath);
+                return;
+            }
+
+            JUtil.loadedFonts.Clear();
+
+            assetNames = bundle.GetAllAssetNames();
+            len = assetNames.Length;
+
+            Font font;
+            for (int i = 0; i < len; i++)
+            {
+                if (assetNames[i].EndsWith(".ttf"))
+                {
+                    font = bundle.LoadAsset<Font>(assetNames[i]);
+                    JUtil.LogInfo(this, "Adding RPM-included font {0} / {1}", font.name, font.fontSize);
+
+                    JUtil.loadedFonts[font.name] = font;
+                }
+            }
+            bundle.Unload(false);
+
+            JUtil.LogInfo(this, "Found {0} RPM shaders and {1} fonts.", JUtil.parsedShaders.Count, JUtil.loadedFonts.Count);
+        }
+
+        /// <summary>
+        /// Wake up and ask for all of the shaders in our asset bundle and kick off
+        /// the coroutines that look for global RPM config data.
+        /// </summary>
+        private void Awake()
+        {
+            if (!GameDatabase.Instance.IsReady())
+            {
+                JUtil.LogErrorMessage(this, "GameDatabase.IsReady is false");
+                throw new Exception("RPMShaderLoader: GameDatabase is not ready.  Unable to continue.");
+            }
+
+            ConfigNode rpmSettings = ConfigNode.Load(KSPUtil.ApplicationRootPath + RPMGlobals.configFileName);
+            // rpmSettings points at the base node.  I need to step into that node to access my settings.
+            if (rpmSettings != null && rpmSettings.CountNodes > 0)
+            {
+                rpmSettings = rpmSettings.GetNode("RasterPropMonitorSettings");
+            }
+            else
+            {
+                rpmSettings = null;
+            }
+
+            if (rpmSettings != null)
+            {
+                bool enableLogging = false;
+                if (rpmSettings.TryGetValue("DebugLogging", ref enableLogging))
+                {
+                    RPMGlobals.debugLoggingEnabled = enableLogging;
+                    JUtil.LogInfo(this, "Set debugLoggingEnabled to {0}", enableLogging);
+                }
+                else
+                {
+                    RPMGlobals.debugLoggingEnabled = false;
+                }
+
+                bool showVariableCallCount = false;
+                if (rpmSettings.TryGetValue("ShowCallCount", ref showVariableCallCount))
+                {
+                    // call count doesn't write anything if enableLogging is false
+                    RPMGlobals.debugShowVariableCallCount = showVariableCallCount && RPMGlobals.debugLoggingEnabled;
+                }
+                else
+                {
+                    RPMGlobals.debugShowVariableCallCount = false;
+                }
+
+                int defaultRefresh = RPMGlobals.defaultRefreshRate;
+                if (rpmSettings.TryGetValue("DefaultRefreshRate", ref defaultRefresh))
+                {
+                    RPMGlobals.defaultRefreshRate = Math.Max(defaultRefresh, 1);
+                }
+
+                int minRefresh = RPMGlobals.minimumRefreshRate;
+                if (rpmSettings.TryGetValue("MinimumRefreshRate", ref minRefresh))
+                {
+                    RPMGlobals.minimumRefreshRate = Math.Max(minRefresh, 1);
+                }
+
+                bool useNewVariableAnimator = false;
+                if (rpmSettings.TryGetValue("UseNewVariableAnimator", ref useNewVariableAnimator))
+                {
+                    RPMGlobals.useNewVariableAnimator = useNewVariableAnimator;
+                }
+                else
+                {
+                    RPMGlobals.useNewVariableAnimator = false;
+                }
+
+                RPMGlobals.debugShowOnly.Clear();
+                string showOnlyConcat = string.Empty;
+                if (rpmSettings.TryGetValue("ShowOnly", ref showOnlyConcat) && !string.IsNullOrEmpty(showOnlyConcat))
+                {
+                    string[] showOnly = showOnlyConcat.Split('|');
+                    for (int i = 0; i < showOnly.Length; ++i)
+                    {
+                        RPMGlobals.debugShowOnly.Add(showOnly[i].Trim());
+                    }
+                }
+            }
+
+            LoadAssets();
+
+            StartCoroutine("LoadRasterPropMonitorValues");
+
+            // Register a callback with ModuleManager so we can get notified
+            // of database reloads.
+            if (!RegisterWithModuleManager())
+            {
+                JUtil.LogErrorMessage(this, "Unable to register with ModuleManager for database reloads");
+            }
+        }
+
+        /// <summary>
+        /// Coroutine for loading the various custom variables used for variables.
+        /// Yield-returns ever 32 or so variables so it's not as costly in a
+        /// given frame.  Also loads all the other various values used by RPM.
+        /// </summary>
+        /// <returns></returns>
+        private IEnumerator LoadRasterPropMonitorValues()
+        {
+            var bodies = FlightGlobals.Bodies;
+            for (int i = 0; i < bodies.Count; ++i)
+            {
+                JUtil.LogMessage(this, "CelestialBody {0} is index {1}", bodies[i].bodyName, bodies[i].flightGlobalsIndex);
+            }
+
+            RPMGlobals.customVariables.Clear();
+
+            ConfigNode[] nodes = GameDatabase.Instance.GetConfigNodes("RPM_CUSTOM_VARIABLE");
+            for (int i = 0; i < nodes.Length; ++i)
+            {
+
+                try
+                {
+                    string varName = nodes[i].GetValue("name");
+
+                    if (!string.IsNullOrEmpty(varName))
+                    {
+                        string completeVarName = "CUSTOM_" + varName;
+                        RPMGlobals.customVariables.Add(completeVarName, nodes[i]);
+                        JUtil.LogMessage(this, "I know about {0}", completeVarName);
+                    }
+                }
+                catch
+                {
+
+                }
+
+                if ((i & 0x1f) == 0x1f)
+                {
+                    yield return null;
+                }
+            }
+
+            // And parse known mapped variables
+            nodes = GameDatabase.Instance.GetConfigNodes("RPM_MAPPED_VARIABLE");
+            for (int i = 0; i < nodes.Length; ++i)
+            {
+                try
+                {
+                    string varName = nodes[i].GetValue("mappedVariable");
+
+                    if (!string.IsNullOrEmpty(varName))
+                    {
+                        string completeVarName = "MAPPED_" + varName;
+                        RPMGlobals.customVariables.Add(completeVarName, nodes[i]);
+                        JUtil.LogMessage(this, "I know about {0}", completeVarName);
+                    }
+                }
+                catch
+                {
+
+                }
+                if ((i & 0x1f) == 0x1f)
+                {
+                    yield return null;
+                }
+            }
+
+            // And parse known math variables
+            nodes = GameDatabase.Instance.GetConfigNodes("RPM_MATH_VARIABLE");
+            for (int i = 0; i < nodes.Length; ++i)
+            {
+                try
+                {
+                    string varName = nodes[i].GetValue("name");
+
+                    if (!string.IsNullOrEmpty(varName))
+                    {
+                        string completeVarName = "MATH_" + varName;
+                        RPMGlobals.customVariables.Add(completeVarName, nodes[i]);
+                        JUtil.LogMessage(this, "I know about {0}", completeVarName);
+                    }
+                }
+                catch
+                {
+
+                }
+                if ((i & 0x1f) == 0x1f)
+                {
+                    yield return null;
+                }
+            }
+
+            // And parse known select variables
+            nodes = GameDatabase.Instance.GetConfigNodes("RPM_SELECT_VARIABLE");
+            for (int i = 0; i < nodes.Length; ++i)
+            {
+                try
+                {
+                    string varName = nodes[i].GetValue("name");
+
+                    if (!string.IsNullOrEmpty(varName))
+                    {
+                        string completeVarName = "SELECT_" + varName;
+                        RPMGlobals.customVariables.Add(completeVarName, nodes[i]);
+                        JUtil.LogMessage(this, "I know about {0}", completeVarName);
+                    }
+                }
+                catch
+                {
+
+                }
+                if ((i & 0x1f) == 0x1f)
+                {
+                    yield return null;
+                }
+            }
+            yield return null;
+
+            JUtil.globalColors.Clear();
+            nodes = GameDatabase.Instance.GetConfigNodes("RPM_GLOBALCOLORSETUP");
+            for (int idx = 0; idx < nodes.Length; ++idx)
+            {
+                ConfigNode[] colorConfig = nodes[idx].GetNodes("COLORDEFINITION");
+                for (int defIdx = 0; defIdx < colorConfig.Length; ++defIdx)
+                {
+                    if (colorConfig[defIdx].HasValue("name") && colorConfig[defIdx].HasValue("color"))
+                    {
+                        string name = "COLOR_" + (colorConfig[defIdx].GetValue("name").Trim());
+                        try
+                        {
+                            Color32 color = ConfigNode.ParseColor32(colorConfig[defIdx].GetValue("color").Trim());
+                            if (JUtil.globalColors.ContainsKey(name))
+                            {
+                                JUtil.globalColors[name] = color;
+                            }
+                            else
+                            {
+                                JUtil.globalColors.Add(name, color);
+                            }
+                            JUtil.LogMessage(this, "I know {0} = {1}", name, color);
+                        }
+                        catch (Exception e)
+                        {
+                            JUtil.LogErrorMessage(this, "Error parsing color {0}: {1}", colorConfig[defIdx].GetValue("name").Trim(), e);
+                        }
+                    }
+                }
+            }
+
+            RPMGlobals.triggeredEvents.Clear();
+            nodes = GameDatabase.Instance.GetConfigNodes("RPM_TRIGGERED_EVENT");
+            for (int idx = 0; idx < nodes.Length; ++idx)
+            {
+                string eventName = nodes[idx].GetValue("eventName").Trim();
+
+                try
+                {
+                    RasterPropMonitorComputer.TriggeredEventTemplate triggeredVar = new RasterPropMonitorComputer.TriggeredEventTemplate(nodes[idx]);
+
+                    if (!string.IsNullOrEmpty(eventName) && triggeredVar != null)
+                    {
+                        RPMGlobals.triggeredEvents.Add(triggeredVar);
+                        JUtil.LogMessage(this, "I know about event {0}", eventName);
+                    }
+                }
+                catch (Exception e)
+                {
+                    JUtil.LogErrorMessage(this, "Error adding triggered event {0}: {1}", eventName, e);
+                }
+            }
+
+            RPMGlobals.ignoreAllPartModules.Clear();
+            RPMGlobals.ignorePartModules.Clear();
+            nodes = GameDatabase.Instance.GetConfigNodes("RPM_IGNORE_MODULES");
+            for (int idx = 0; idx < nodes.Length; ++idx)
+            {
+                foreach (string nameExpression in nodes[idx].GetValuesList("moduleName"))
+                {
+                    string[] splitted = nameExpression.Split(':'); //splitted[0] - part name, splitted[1] - module name
+                    if (splitted.Length != 2 || splitted[0].Length == 0 || splitted[1].Length == 0)
+                    {
+                        continue; //just skipping in case of bad syntax
+                    }
+                    string partName = splitted[0].Replace('_', '.'); //KSP does it, so we do
+                    if (splitted[1] == "*")
+                    {
+                        RPMGlobals.ignoreAllPartModules.Add(partName);
+                    }
+                    else
+                    {
+                        List<string> moduleNameList;
+                        if (!RPMGlobals.ignorePartModules.TryGetValue(partName, out moduleNameList))
+                        {
+                            moduleNameList = new List<string>();
+                            RPMGlobals.ignorePartModules.Add(partName, moduleNameList);
+                        }
+                        if (!moduleNameList.Contains(splitted[1]))
+                        {
+                            moduleNameList.Add(splitted[1]);
+                        }
+                    }
+                }
+            }
+
+            RPMGlobals.knownLoadedAssemblies.Clear();
+            for (int i = 0; i < AssemblyLoader.loadedAssemblies.Count; ++i)
+            {
+                string thatName = AssemblyLoader.loadedAssemblies[i].assembly.GetName().Name;
+                RPMGlobals.knownLoadedAssemblies.Add(thatName.ToUpper());
+                JUtil.LogMessage(this, "I know that {0} ISLOADED_{1}", thatName, thatName.ToUpper());
+                if ((i & 0xf) == 0xf)
+                {
+                    yield return null;
+                }
+            }
+
+            RPMGlobals.systemNamedResources.Clear();
+            foreach (PartResourceDefinition thatResource in PartResourceLibrary.Instance.resourceDefinitions)
+            {
+                string varname = thatResource.name.ToUpperInvariant().Replace(' ', '-').Replace('_', '-');
+                RPMGlobals.systemNamedResources.Add(varname, thatResource.name);
+                JUtil.LogMessage(this, "Remembering system resource {1} as SYSR_{0}", varname, thatResource.name);
+            }
+
+            yield return null;
+        }
+
+        public void PostPatchCallback()
+        {
+            JUtil.LogMessage(this, "ModuleManager has reloaded - reloading RPM values");
+            StartCoroutine("LoadRasterPropMonitorValues");
+        }
+
+        private bool RegisterWithModuleManager()
+        {
+            Type mmPatchLoader = null;
+            AssemblyLoader.loadedAssemblies.TypeOperation(t =>
+            {
+                if (t.FullName == "ModuleManager.MMPatchLoader")
+                {
+                    mmPatchLoader = t;
+                }
+            });
+
+            if (mmPatchLoader == null)
+            {
+                return false;
+            }
+
+            MethodInfo addPostPatchCallback = mmPatchLoader.GetMethod("addPostPatchCallback", BindingFlags.Static | BindingFlags.Public);
+
+            if (addPostPatchCallback == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var parms = addPostPatchCallback.GetParameters();
+                if (parms.Length < 1)
+                {
+                    return false;
+                }
+
+                Delegate callback = Delegate.CreateDelegate(parms[0].ParameterType, this, "PostPatchCallback");
+
+                object[] args = new object[] { callback };
+
+                addPostPatchCallback.Invoke(null, args);
+            }
+            catch (Exception e)
+            {
+                JUtil.LogMessage(this, "addPostPatchCallback threw {0}", e);
+                return false;
+            }
+
+            return true;
         }
     }
 }

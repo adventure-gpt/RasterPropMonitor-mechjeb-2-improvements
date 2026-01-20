@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -23,14 +23,11 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using UnityEngine.Profiling;
 
 namespace JSI
 {
     public class RasterPropMonitor : InternalModule
     {
-        [SerializeReference] ConfigNodeHolder moduleConfig;
-
         [KSPField]
         public string screenTransform = "screenTransform";
         [KSPField]
@@ -71,9 +68,11 @@ namespace JSI
         [KSPField]
         public string resourceName = "SYSR_ELECTRICCHARGE";
         private bool resourceDepleted = false; // Managed by rpmComp callback
+        private Action<bool> delResourceCallback;
         [KSPField]
         public bool needsCommConnection = false;
         private bool noCommConnection = false; // Managed by rpmComp callback
+        private Action<float> delCommConnectionCallback;
         [KSPField]
         public string defaultFontTint = string.Empty;
         public Color defaultFontTintValue = Color.white;
@@ -100,7 +99,6 @@ namespace JSI
         private string persistentVarName;
         private FXGroup audioOutput;
         public Texture2D noSignalTexture;
-        private GameObject screenObject;
         private Material screenMat;
         private bool startupComplete;
         private string fontDefinitionString = @" !""#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~Δ☊¡¢£¤¥¦§¨©ª«¬☋®¯°±²³´µ¶·¸¹º»¼½¾¿";
@@ -123,9 +121,6 @@ namespace JSI
                         font = (Texture2D)thisProp.FindModelTransform(location).GetComponent<Renderer>().material.mainTexture;
                         JUtil.LogMessage(caller, "Loading font texture from a transform named \"{0}\"", location);
                     }
-
-                    font.filterMode = FilterMode.Point;
-                    font.requestedMipmapLevel = 0;
                 }
                 catch (Exception)
                 {
@@ -133,12 +128,6 @@ namespace JSI
                 }
             }
             return font;
-        }
-
-        public override void OnLoad(ConfigNode node)
-        {
-            moduleConfig = ScriptableObject.CreateInstance<ConfigNodeHolder>();
-            moduleConfig.Node = node;
         }
 
         public void Start()
@@ -157,7 +146,7 @@ namespace JSI
 
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
                 JUtil.LogMessage(this, "Attaching monitor {2}-{1} to {0}", rpmComp.RPMCid, internalProp.propID, internalProp.internalModel.internalName);
 
                 // Install the calculator module.
@@ -185,17 +174,14 @@ namespace JSI
 
                 // Now that is done, proceed to setting up the screen.
 
-                screenTexture = new RenderTexture(screenPixelWidth, screenPixelHeight, 24, RenderTextureFormat.ARGB32, 0);
-                screenObject = internalProp.FindModelTransform(screenTransform).gameObject;
-                var renderer = screenObject.AddComponent<VisibilityEnabler>();
-                renderer.Initialize(this);
-                screenMat = screenObject.GetComponent<Renderer>().material;
+                screenTexture = new RenderTexture(screenPixelWidth, screenPixelHeight, 24, RenderTextureFormat.ARGB32);
+                screenMat = internalProp.FindModelTransform(screenTransform).GetComponent<Renderer>().material;
 
                 bool manuallyInvertY = false;
-                //if (SystemInfo.graphicsDeviceVersion.StartsWith("Direct3D 9") || SystemInfo.graphicsDeviceVersion.StartsWith("Direct3D 11") || SystemInfo.graphicsDeviceVersion.StartsWith("Direct3D 12"))
-                //{
-                //    manuallyInvertY = (UnityEngine.QualitySettings.antiAliasing > 0);
-                //}
+                if (SystemInfo.graphicsDeviceVersion.StartsWith("Direct3D 9") || SystemInfo.graphicsDeviceVersion.StartsWith("Direct3D 11") || SystemInfo.graphicsDeviceVersion.StartsWith("Direct3D 12"))
+                {
+                    manuallyInvertY = (UnityEngine.QualitySettings.antiAliasing > 0);
+                }
 
                 foreach (string layerID in textureLayerID.Split())
                 {
@@ -214,31 +200,48 @@ namespace JSI
                     noSignalTexture = GameDatabase.Instance.GetTexture(noSignalTextureURL.EnforceSlashes(), false);
                 }
 
-                ConfigNode[] pageNodes = moduleConfig.Node.GetNodes("PAGE");
-
-                // parse page definitions
-                for (int i = 0; i < pageNodes.Length; i++)
+                // The neat trick. IConfigNode doesn't work. No amount of kicking got it to work.
+                // Well, we don't need it. GameDatabase, gimme config nodes for all props!
+                foreach (ConfigNode node in GameDatabase.Instance.GetConfigNodes("PROP"))
                 {
-                    // Mwahahaha.
-                    try
+                    // Now, we know our own prop name.
+                    if (node.GetValue("name") == internalProp.propName)
                     {
-                        var newPage = new MonitorPage(i, pageNodes[i], this);
-                        activePage = activePage ?? newPage;
-                        if (newPage.isDefault)
-                            activePage = newPage;
-                        pages.Add(newPage);
-                    }
-                    catch (ArgumentException e)
-                    {
-                        JUtil.LogMessage(this, "Warning - {0}", e);
-                    }
+                        // So this is the configuration of our prop in memory. Nice place.
+                        // We know it contains at least one MODULE node, us.
+                        // And we know our moduleID, which is the number in order of being listed in the prop.
+                        // Therefore the module by that number is our module's own config node.
 
-                }
+                        ConfigNode moduleConfig = node.GetNodes("MODULE")[moduleID];
+                        ConfigNode[] pageNodes = moduleConfig.GetNodes("PAGE");
 
-                // Now that all pages are loaded, we can use the moment in the loop to suck in all the extra fonts.
-                foreach (string value in moduleConfig.Node.GetValues("extraFont"))
-                {
-                    fontTexture.Add(LoadFont(this, internalProp, value));
+                        // Which we can now parse for page definitions.
+                        for (int i = 0; i < pageNodes.Length; i++)
+                        {
+                            // Mwahahaha.
+                            try
+                            {
+                                var newPage = new MonitorPage(i, pageNodes[i], this);
+                                activePage = activePage ?? newPage;
+                                if (newPage.isDefault)
+                                    activePage = newPage;
+                                pages.Add(newPage);
+                            }
+                            catch (ArgumentException e)
+                            {
+                                JUtil.LogMessage(this, "Warning - {0}", e);
+                            }
+
+                        }
+
+                        // Now that all pages are loaded, we can use the moment in the loop to suck in all the extra fonts.
+                        foreach (string value in moduleConfig.GetValues("extraFont"))
+                        {
+                            fontTexture.Add(LoadFont(this, internalProp, value));
+                        }
+
+                        break;
+                    }
                 }
 
                 JUtil.LogMessage(this, "Done setting up pages, {0} pages ready.", pages.Count);
@@ -271,12 +274,14 @@ namespace JSI
 
                 if (needsElectricCharge)
                 {
-                    rpmComp.RegisterResourceCallback(resourceName, ResourceDepletedCallback);
+                    delResourceCallback = (Action<bool>)Delegate.CreateDelegate(typeof(Action<bool>), this, "ResourceDepletedCallback");
+                    rpmComp.RegisterResourceCallback(resourceName, delResourceCallback);
                 }
 
                 if (needsCommConnection)
                 {
-                    rpmComp.RegisterVariableCallback("COMMNETVESSELCONTROLSTATE", CommConnectionCallback);
+                    delCommConnectionCallback = (Action<float>)Delegate.CreateDelegate(typeof(Action<float>), this, "CommConnectionCallback");
+                    rpmComp.RegisterVariableCallback("COMMNETVESSELCONTROLSTATE", delCommConnectionCallback);
                 }
 
                 // And if the try block never completed, startupComplete will never be true.
@@ -310,8 +315,14 @@ namespace JSI
             {
                 Destroy(screenMat);
             }
-            rpmComp.UnregisterResourceCallback(resourceName, ResourceDepletedCallback);
-            rpmComp.UnregisterVariableCallback("COMMNETVESSELCONTROLSTATE", CommConnectionCallback);
+            if (delResourceCallback != null)
+            {
+                rpmComp.UnregisterResourceCallback(resourceName, delResourceCallback);
+            }
+            if (delCommConnectionCallback != null)
+            {
+                rpmComp.UnregisterVariableCallback("COMMNETVESSELCONTROLSTATE", delCommConnectionCallback);
+            }
         }
 
         private static void PlayClickSound(FXGroup audioOutput)
@@ -379,16 +390,6 @@ namespace JSI
             }
         }
 
-        internal void SelectNextPatch()
-        {
-            rpmComp.SelectNextPatch();
-        }
-
-        internal void SelectPreviousPatch()
-        {
-            rpmComp.SelectPreviousPatch();
-        }
-
         // Update according to the given refresh rate.
         private bool UpdateCheck()
         {
@@ -417,57 +418,50 @@ namespace JSI
 
         private void RenderScreen()
         {
-			Profiler.BeginSample("RPM.RenderScreen [" + activePage.name + "]");
-
-			RenderTexture backupRenderTexture = RenderTexture.active;
+            RenderTexture backupRenderTexture = RenderTexture.active;
 
             if (!screenTexture.IsCreated())
             {
                 screenTexture.Create();
             }
-            
-			if (resourceDepleted || noCommConnection)
-			{
-                screenTexture.DiscardContents();
-                RenderTexture.active = screenTexture;
+            screenTexture.DiscardContents();
+            RenderTexture.active = screenTexture;
+
+            if (resourceDepleted || noCommConnection)
+            {
                 // If we're out of electric charge, we're drawing a blank screen.
                 GL.Clear(true, true, emptyColorValue);
-			}
-			else if (textRenderer.UpdateText(activePage) || activePage.background == MonitorPage.BackgroundType.Handler)
-			{
-                screenTexture.DiscardContents();
-                RenderTexture.active = screenTexture;
+                RenderTexture.active = backupRenderTexture;
+                return;
+            }
 
-                // This is the important witchcraft. Without that, DrawTexture does not print where we expect it to.
-                // Cameras don't care because they have their own matrices, but DrawTexture does.
-                GL.PushMatrix();
-				GL.LoadPixelMatrix(0, screenPixelWidth, screenPixelHeight, 0);
+            // This is the important witchcraft. Without that, DrawTexture does not print where we expect it to.
+            // Cameras don't care because they have their own matrices, but DrawTexture does.
+            GL.PushMatrix();
+            GL.LoadPixelMatrix(0, screenPixelWidth, screenPixelHeight, 0);
 
-				// Actual rendering of the background is delegated to the page object.
-				activePage.RenderBackground(screenTexture);
+            // Actual rendering of the background is delegated to the page object.
+            activePage.RenderBackground(screenTexture);
 
-				if (!string.IsNullOrEmpty(activePage.ProcessedText))
-				{
-					textRenderer.Render(screenTexture);
-				}
+            if (!string.IsNullOrEmpty(activePage.Text))
+            {
+                textRenderer.Render(screenTexture, activePage);
+            }
 
-				activePage.RenderOverlay(screenTexture);
-				GL.PopMatrix();
-			}
+            activePage.RenderOverlay(screenTexture);
+            GL.PopMatrix();
 
-			RenderTexture.active = backupRenderTexture;
-			Profiler.EndSample();
-		}
+            RenderTexture.active = backupRenderTexture;
+        }
 
         private void FillScreenBuffer()
         {
-			Profiler.BeginSample("RasterPropMonitor.FillScreenBuffer");
-			activePage.UpdateText(rpmComp);
-			Profiler.EndSample();
+            activePage.UpdateText(rpmComp);
         }
 
-        public void LateUpdate()
+        public override void OnUpdate()
         {
+
             if (HighLogic.LoadedSceneIsEditor)
             {
                 return;
@@ -480,8 +474,8 @@ namespace JSI
             {
                 return;
             }
-			
-            if (!JUtil.RasterPropMonitorShouldUpdate(part))
+
+            if (!JUtil.RasterPropMonitorShouldUpdate(vessel) && !JUtil.UserIsInPod(part))
             {
                 return;
             }
@@ -499,7 +493,7 @@ namespace JSI
                 RenderTexture.active = screenTexture;
                 screenshot.ReadPixels(new Rect(0, 0, screenTexture.width, screenTexture.height), 0, 0);
                 RenderTexture.active = backupRenderTexture;
-                var bytes = ImageConversion.EncodeToPNG(screenshot);
+                var bytes = screenshot.EncodeToPNG();
                 Destroy(screenshot);
                 File.WriteAllBytes(screenshotName, bytes);
             }
@@ -509,16 +503,7 @@ namespace JSI
                 return;
             }
 
-			Profiler.BeginSample("RasterPropMonitor.OnLateUpdate");
-
-            if (resourceDepleted || noCommConnection)
-            {
-                // this is a bit wasteful since we could just store the blanked texture, but at least it's not going to do any string processing
-                RenderScreen();
-                firstRenderComplete = false;
-                textRefreshRequired = true;
-            }
-            else if (!activePage.isMutable)
+            if (!activePage.isMutable)
             {
                 // In case the page is empty and has no camera, the screen is treated as turned off and blanked once.
                 if (!firstRenderComplete)
@@ -527,6 +512,10 @@ namespace JSI
                     RenderScreen();
                     firstRenderComplete = true;
                     textRefreshRequired = false;
+                }
+                else
+                {
+                    RenderScreen();
                 }
             }
             else
@@ -541,23 +530,21 @@ namespace JSI
                 firstRenderComplete = true;
             }
 
-			// Oneshot screens: We create a permanent texture from our RenderTexture if the first pass of the render is complete,
-			// set it in place of the rendertexture -- and then we selfdestruct.
-			// MOARdV: Except we don't want to self-destruct, because we will leak the frozenScreen texture.
-			if (oneshot && firstRenderComplete)
-			{
-				frozenScreen = new Texture2D(screenTexture.width, screenTexture.height);
-				RenderTexture backupRenderTexture = RenderTexture.active;
-				RenderTexture.active = screenTexture;
-				frozenScreen.ReadPixels(new Rect(0, 0, screenTexture.width, screenTexture.height), 0, 0);
-				RenderTexture.active = backupRenderTexture;
-				foreach (string layerID in textureLayerID.Split())
-				{
-					screenMat.SetTexture(layerID.Trim(), frozenScreen);
-				}
-			}
-
-			Profiler.EndSample();
+            // Oneshot screens: We create a permanent texture from our RenderTexture if the first pass of the render is complete,
+            // set it in place of the rendertexture -- and then we selfdestruct.
+            // MOARdV: Except we don't want to self-destruct, because we will leak the frozenScreen texture.
+            if (oneshot && firstRenderComplete)
+            {
+                frozenScreen = new Texture2D(screenTexture.width, screenTexture.height);
+                RenderTexture backupRenderTexture = RenderTexture.active;
+                RenderTexture.active = screenTexture;
+                frozenScreen.ReadPixels(new Rect(0, 0, screenTexture.width, screenTexture.height), 0, 0);
+                RenderTexture.active = backupRenderTexture;
+                foreach (string layerID in textureLayerID.Split())
+                {
+                    screenMat.SetTexture(layerID.Trim(), frozenScreen);
+                }
+            }
         }
 
         public void OnApplicationPause(bool pause)

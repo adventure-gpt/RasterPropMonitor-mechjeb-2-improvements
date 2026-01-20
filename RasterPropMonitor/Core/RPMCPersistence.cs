@@ -20,75 +20,127 @@
  ****************************************************************************/
 using System;
 using System.Collections.Generic;
-using JSI.Core;
 using UnityEngine;
 
 namespace JSI
 {
     public partial class RasterPropMonitorComputer : PartModule
     {
-        internal readonly PersistentVariableCollection m_persistentVariables = new PersistentVariableCollection();
+        /// <summary>
+        /// Per-pod persistence.  This code was devolved from RPMVC due to
+        /// difficulties handling docking and undocking.
+        /// </summary>
+        internal Dictionary<string, object> persistentVars = new Dictionary<string, object>();
 
-        PersistentVariableCollection GetVariableCollection(bool global)
+        /// <summary>
+        /// Returns the named persistent value, or the default provided if
+        /// it's not set.  The persistent value is initialized to the default
+        /// if the default is used.  If 'broadcast' is set, other RPMC on the
+        /// same vessel are queried, as well.
+        /// </summary>
+        /// <param name="name">Name of the persistent</param>
+        /// <param name="defaultValue">The default value</param>
+        /// <param name="broadcast">Broadcast the request to other parts of the same craft?</param>
+        /// <returns></returns>
+        internal object GetPersistentVariable(string name, object defaultValue, bool broadcast)
         {
-            return global ? RPMVesselComputer.Instance(vessel).PersistentVariables : m_persistentVariables;
-        }
-
-        internal double GetPersistentVariable(string name, double defaultValue, bool global)
-        {
-            return GetVariableCollection(global).GetPersistentVariable(name, defaultValue);
-        }
-
-        internal bool GetPersistentVariable(string name, bool defaultValue, bool global)
-        {
-            return GetVariableCollection(global).GetPersistentVariable(name, defaultValue);
-        }
-
-        internal bool HasPersistentVariable(string name, bool global)
-        {
-            return GetVariableCollection(global).HasPersistentVariable(name);
-        }
-
-        internal void SetPersistentVariable(string name, double value, bool global)
-        {
-            bool valueChanged = GetVariableCollection(global).SetPersistentVariable(name, value);
-
-            if (!valueChanged) return;
-
-            // we need to go update the variableCollections....
-
-            RPMVesselComputer vesselComp = RPMVesselComputer.Instance(vessel);
-            string varName = "PERSISTENT_" + name;
-
-            if (global)
+            object val;
+            if (persistentVars.ContainsKey(name))
             {
-                // TODO: might want to cache this list in the vesselmodule?
-                foreach (var part in vessel.parts)
+                val = persistentVars[name];
+            }
+            else if (broadcast)
+            {
+                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
+                val = comp.GetPersistentVariable(name, defaultValue);
+                persistentVars[name] = val;
+            }
+            else
+            {
+                val = defaultValue;
+                persistentVars[name] = defaultValue;
+            }
+
+            return val;
+        }
+
+        /// <summary>
+        /// Return the persistent variable, pre-treated as a boolean.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="defaultValue"></param>
+        /// <param name="broadcast">Broadcast the request to other parts of the same craft?</param>
+        /// <returns></returns>
+        internal bool GetPersistentVariable(string name, bool defaultValue, bool broadcast)
+        {
+            object val;
+            if (persistentVars.ContainsKey(name))
+            {
+                val = persistentVars[name];
+            }
+            else if (broadcast)
+            {
+                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
+                val = comp.GetPersistentVariable(name, defaultValue);
+                if (val.GetType() == typeof(System.Boolean))
                 {
-                    var rpmc = part.FindModuleImplementing<RasterPropMonitorComputer>();
-                    if (rpmc != null)
-                    {
-                        var vc = rpmc.variableCollection.GetVariable(varName);
-                        if (vc != null)
-                        {
-                            vc.Update(vesselComp);
-                        }
-                    }
+                    persistentVars[name] = val;
                 }
             }
             else
             {
-                var vc = variableCollection.GetVariable(varName);
-                if (vc != null)
-                {
-                    vc.Update(vesselComp);
-                }
+                val = defaultValue;
+                persistentVars[name] = defaultValue;
+            }
+
+            return (val.GetType() == typeof(System.Boolean)) ? (bool)val : false;
+        }
+
+
+        /// <summary>
+        /// Indicates whether the named persistent variable is present in the
+        /// dictionary.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="broadcast">Broadcast the request to other parts of the same craft?</param>
+        /// <returns></returns>
+        internal bool HasPersistentVariable(string name, bool broadcast)
+        {
+            if(persistentVars.ContainsKey(name))
+            {
+                return true;
+            }
+            else if(broadcast)
+            {
+                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
+                return comp.HasPersistentVariable(name);
+            }
+            else
+            {
+                return false;
             }
         }
 
-        internal void SetPersistentVariable(string name, bool value, bool global)
+        /// <summary>
+        /// Set the named persistent variable to the value provided.
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="value"></param>
+        /// <param name="broadcast">Broadcast the request to other parts of the same craft?</param>
+        internal void SetPersistentVariable(string name, object value, bool broadcast)
         {
-            SetPersistentVariable(name, value ? 1 : 0, global);
+            if (name.Trim().Length == 0)
+            {
+                JUtil.LogErrorMessage(this, "Trying to set an empty variable name!");
+                return;
+            }
+            persistentVars[name] = value;
+
+            if(broadcast)
+            {
+                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
+                comp.SetPersistentVariable(name, value);
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -53,6 +53,13 @@ namespace JSI
         private Action<float> del;
         private StringProcessorFormatter spf;
         private RasterPropMonitorComputer rpmComp;
+        /// <summary>
+        /// The Guid of the vessel we belonged to at Start.  When undocking,
+        /// KSP will change the vessel member variable before calling OnDestroy,
+        /// which prevents us from getting the RPMVesselComputer we registered
+        /// with.  So we have to store the Guid separately.
+        /// </summary>
+        private Guid registeredVessel = Guid.Empty;
 
         public void Start()
         {
@@ -63,11 +70,12 @@ namespace JSI
 
             try
             {
-                rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+                rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
 
-                Transform textObjTransform = JUtil.FindPropTransform(internalProp, transformName);
+                Transform textObjTransform = internalProp.FindModelTransform(transformName);
                 textObj = InternalComponents.Instance.CreateText("Arial", fontSize * 15.5f, textObjTransform, "", Color.green, false, "TopLeft");
                 // Force oneshot if there's no variables:
+                oneshot |= !labelText.Contains("$&$");
                 string sourceString = labelText.UnMangleConfigText();
 
                 if (!string.IsNullOrEmpty(sourceString) && sourceString.Length > 1)
@@ -79,7 +87,6 @@ namespace JSI
                     }
                 }
                 spf = new StringProcessorFormatter(sourceString, rpmComp);
-                oneshot = spf.IsConstant;
 
                 if (!oneshot)
                 {
@@ -88,11 +95,12 @@ namespace JSI
 
                 if (!(string.IsNullOrEmpty(variableName) || string.IsNullOrEmpty(positiveColor) || string.IsNullOrEmpty(negativeColor) || string.IsNullOrEmpty(zeroColor)))
                 {
-                    positiveColorValue = JUtil.ParseColor32(positiveColor, rpmComp);
-                    negativeColorValue = JUtil.ParseColor32(negativeColor, rpmComp);
-                    zeroColorValue = JUtil.ParseColor32(zeroColor, rpmComp);
+                    positiveColorValue = JUtil.ParseColor32(positiveColor, part, ref rpmComp);
+                    negativeColorValue = JUtil.ParseColor32(negativeColor, part, ref rpmComp);
+                    zeroColorValue = JUtil.ParseColor32(zeroColor, part, ref rpmComp);
                     del = (Action<float>)Delegate.CreateDelegate(typeof(Action<float>), this, "OnCallback");
                     rpmComp.RegisterVariableCallback(variableName, del);
+                    registeredVessel = vessel.id;
 
                     // Initialize the text color. Actually, callback registration took care of that
                 }
@@ -178,19 +186,17 @@ namespace JSI
             {
                 // Shouldn't happen ... but it does, thanks to the quirks of
                 // docking and undocking.
-                rpmComp.RemoveInternalModule(this);
                 return;
             }
 
             if (oneshotComplete && oneshot)
             {
-                rpmComp.RemoveInternalModule(this);
                 return;
             }
 
-            if (UpdateCheck())
+            if (JUtil.RasterPropMonitorShouldUpdate(vessel) && UpdateCheck())
             {
-                textObj.text.text = spf.GetFormattedString();
+                textObj.text.text = StringProcessor.ProcessString(spf, rpmComp);
                 oneshotComplete = true;
             }
         }

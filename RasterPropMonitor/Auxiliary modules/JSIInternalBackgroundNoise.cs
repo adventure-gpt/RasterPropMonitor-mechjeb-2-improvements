@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 namespace JSI
 {
@@ -12,7 +12,7 @@ namespace JSI
         public bool needsElectricCharge = true;
         [KSPField]
         public string resourceName = "SYSR_ELECTRICCHARGE";
-        private VariableOrNumber resourceVariable;
+        private float electricChargeReserve;
         private FXGroup audioOutput;
         private bool isPlaying;
         private const int soundCheckRate = 60;
@@ -26,7 +26,7 @@ namespace JSI
                 return;
             }
 
-            rpmComp = RasterPropMonitorComputer.FindFromProp(internalProp);
+            rpmComp = RasterPropMonitorComputer.Instantiate(internalProp, true);
             if (string.IsNullOrEmpty(soundURL))
             {
                 JUtil.LogMessage(this, "JSIInternalBackgroundNoise called with no soundURL");
@@ -37,7 +37,8 @@ namespace JSI
             if (needsElectricCharge)
             {
                 rpmComp.UpdateDataRefreshRate(soundCheckRate);
-                resourceVariable = rpmComp.InstantiateVariableOrNumber(resourceName);
+                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel.id);
+                electricChargeReserve = rpmComp.ProcessVariable(resourceName, comp).MassageToFloat();
             }
             audioOutput = new FXGroup("RPM" + internalModel.internalName + vessel.id);
             audioOutput.audio = internalModel.gameObject.AddComponent<AudioSource>();
@@ -66,7 +67,7 @@ namespace JSI
 
         private void StartPlaying()
         {
-            if (!isPlaying && (!needsElectricCharge || resourceVariable.AsDouble() > 0.01))
+            if (!isPlaying && (!needsElectricCharge || electricChargeReserve > 0.01f))
             {
                 audioOutput.audio.Play();
                 isPlaying = true;
@@ -87,8 +88,9 @@ namespace JSI
                 if (soundCheckCountdown <= 0)
                 {
                     soundCheckCountdown = soundCheckRate;
-                    
-                    if (resourceVariable.AsDouble() < 0.01)
+                    RPMVesselComputer comp = RPMVesselComputer.Instance(vessel.id);
+                    electricChargeReserve = rpmComp.ProcessVariable(resourceName, comp).MassageToFloat();
+                    if (electricChargeReserve < 0.01f)
                     {
                         StopPlaying();
                         return;

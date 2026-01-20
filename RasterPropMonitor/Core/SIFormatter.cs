@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Text;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,43 +20,19 @@ namespace JSI
         private const string formatPrefixU2K = "U2K";
         private const string formatPrefixU2M = "U2M";
 
-        private static List<string> formatTokens = new List<string>();
-
-        static int FindTokenEndChar(string format, int startIndex)
+        private static string[] SplitByColon(string input)
         {
-            char quoteChar = '\0';
-
-            int index = startIndex;
-            while (index < format.Length)
+            var result = input.Replace("\\;", "ESCAPIDCOLON").Split('"')
+                .Select((element, index) => index % 2 == 0
+                    ? element.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)  // Split the item
+                    : new[] { element })  // Keep the entire item
+                .SelectMany(element => element).ToList();
+            var output = new List<string>();
+            foreach (string token in result)
             {
-                switch (format[index])
-                {
-                    // entering or leaving quotes
-                    case '\'': quoteChar = quoteChar == '\'' ? '\0' : '\''; break;
-                    case '"': quoteChar = quoteChar == '"' ? '\0' : '"'; break;
-                    case ';': if (quoteChar == '\0') return index; break;
-                        // case '\\': ++index; break; // advance an extra character so that the next one is ignored (if it's a semicolon or quote)
-                }
-                ++index;
+                output.Add(token.Replace("ESCAPIDCOLON", ";"));
             }
-
-            return Math.Min(index, format.Length);
-        }
-
-        private static List<string> SplitByColon(string format)
-        {
-            formatTokens.Clear();
-
-            // Need to split the string by semicolons, but ignore semicolons that are inside quotes or after a backslash
-            int startIndex = 0;
-            while (startIndex < format.Length)
-            {
-                int tokenEndChar = FindTokenEndChar(format, startIndex);
-                formatTokens.Add(format.Substring(startIndex, tokenEndChar - startIndex));
-                startIndex = tokenEndChar + 1; // +1 to skip the semicolon
-            }
-
-            return formatTokens;
+            return output.ToArray();
         }
 
         public string Format(string format, object arg, IFormatProvider formatProvider)
@@ -106,7 +82,7 @@ namespace JSI
                 // String.format spec says that the colon section separator takes into account if the 
                 // result became zero after formatting according to the subsequent format strings.
                 // Which actually complicates things annoyingly, because I can't figure out how to test for it.
-                switch (tokens.Count)
+                switch (tokens.Length)
                 {
                     case 2:
                         splitformat = inputValue >= 0 ? tokens[0] : tokens[1];

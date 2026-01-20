@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -31,6 +31,7 @@ namespace JSI
         private readonly List<Action> clickHandlers = new List<Action>();
         private readonly List<Action> releaseHandlers = new List<Action>();
         private readonly List<PageTriggerSet> pageTriggers = new List<PageTriggerSet>();
+        private Part part;
 
         private struct HandlerID
         {
@@ -80,21 +81,24 @@ namespace JSI
 
         public void OnMouseDown()
         {
-            Kerbal k = CameraManager.Instance.ivaCameraActiveKerbal;
-            if (k != null)
+            if (part != null)
             {
-                // Disallow tourists using props
-                if (k.protoCrewMember.type == ProtoCrewMember.KerbalType.Tourist)
+                Kerbal k = part.FindCurrentKerbal();
+                if (k != null)
                 {
-                    if (UnityEngine.Random.Range(0, 10) > 8)
+                    // Disallow tourists using props
+                    if (k.protoCrewMember.type == ProtoCrewMember.KerbalType.Tourist)
                     {
-                        ScreenMessages.PostScreenMessage(string.Format("Stop touching buttons, {0}!", k.name), 4.0f, ScreenMessageStyle.UPPER_CENTER);
+                        if (UnityEngine.Random.Range(0, 10) > 8)
+                        {
+                            ScreenMessages.PostScreenMessage(string.Format("Stop touching buttons, {0}!", k.name), 4.0f, ScreenMessageStyle.UPPER_CENTER);
+                        }
+                        else
+                        {
+                            ScreenMessages.PostScreenMessage(string.Format("Tourist {0} may not operate equipment.", k.name), 4.0f, ScreenMessageStyle.UPPER_CENTER);
+                        }
+                        return;
                     }
-                    else
-                    {
-                        ScreenMessages.PostScreenMessage(string.Format("Tourist {0} may not operate equipment.", k.name), 4.0f, ScreenMessageStyle.UPPER_CENTER);
-                    }
-                    return;
                 }
             }
             foreach (PageTriggerSet monitor in pageTriggers)
@@ -161,8 +165,9 @@ namespace JSI
             }
             try
             {
-                Transform buttonObject = thatModel == null ? JUtil.FindPropTransform(thatProp, buttonName) : JUtil.FindInternalTransform(thatModel, buttonName);
-                SmarterButton thatComponent = buttonObject.GetComponent<SmarterButton>() ?? buttonObject.gameObject.AddComponent<SmarterButton>();
+                GameObject buttonObject;
+                buttonObject = thatModel == null ? thatProp.FindModelTransform(buttonName).gameObject : thatModel.FindModelTransform(buttonName).gameObject;
+                SmarterButton thatComponent = buttonObject.GetComponent<SmarterButton>() ?? buttonObject.AddComponent<SmarterButton>();
                 return thatComponent;
             }
             catch
@@ -190,6 +195,7 @@ namespace JSI
             }
 
             buttonBehaviour.pageTriggers.Add(new PageTriggerSet(handlerFunction, thatPage));
+            buttonBehaviour.part = (thatModel == null) ? thatProp.part : thatModel.part;
         }
 
         public static void CreateButton(InternalProp thatProp, string buttonName, int numericID, Action<int> clickHandlerFunction, Action<int> releaseHandlerFunction, InternalModel thatModel = null)
@@ -210,21 +216,22 @@ namespace JSI
                 function = releaseHandlerFunction,
                 idValue = numericID
             });
+            buttonBehaviour.part = (thatModel == null) ? thatProp.part : thatModel.part;
         }
 
         public static void CreateButton(InternalProp thatProp, string buttonName, Action handlerFunction, Action releaseHandlerFunction = null, InternalModel thatModel = null)
         {
-            SmarterButton buttonBehaviour = AttachBehaviour(thatProp, thatModel, buttonName);
-            if (buttonBehaviour == null)
+            SmarterButton buttonBehaviour;
+            if ((buttonBehaviour = AttachBehaviour(thatProp, thatModel, buttonName)) == null)
             {
                 return;
             }
-            buttonBehaviour.gameObject.layer = 20; // everything clickable needs to be on layer 20 because FreeIva disables mouse interaction with layer 16.
             buttonBehaviour.clickHandlers.Add(handlerFunction);
             if (releaseHandlerFunction != null)
             {
                 buttonBehaviour.releaseHandlers.Add(releaseHandlerFunction);
             }
+            buttonBehaviour.part = (thatModel == null) ? thatProp.part : thatModel.part;
         }
     }
 }

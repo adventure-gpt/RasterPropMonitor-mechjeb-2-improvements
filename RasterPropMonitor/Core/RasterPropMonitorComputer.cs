@@ -1,4 +1,4 @@
-﻿/*****************************************************************************
+/*****************************************************************************
  * RasterPropMonitor
  * =================
  * Plugin for Kerbal Space Program
@@ -20,7 +20,6 @@
  ****************************************************************************/
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace JSI
@@ -30,11 +29,6 @@ namespace JSI
     // onCrewBoardVessel
     // onCrewOnEva
     // onCrewTransferred
-
-    /// <summary>
-    /// The computer for the pod. This class can be used for shared data across
-    /// different screens in the same pod.
-    /// </summary>
     public partial class RasterPropMonitorComputer : PartModule
     {
         // The only public configuration variable.
@@ -45,25 +39,16 @@ namespace JSI
         [KSPField]
         public string triggeredEvents = string.Empty;
 
+        // Yes, it's a really braindead way of doing it, but I ran out of elegant ones,
+        // because nothing appears to work as documented -- IF it's documented.
+        // This one is sure to work and isn't THAT much of a performance drain, really.
+        // Pull requests welcome
         // Vessel description storage and related code.
         [KSPField(isPersistant = true)]
         public string vesselDescription = string.Empty;
         private string vesselDescriptionForDisplay = string.Empty;
-        private static readonly string editorNewline = ((char)0x0a).ToString();
+        private readonly string editorNewline = ((char)0x0a).ToString();
         private string lastVesselDescription = string.Empty;
-
-        internal readonly string[] actionGroupMemo = {
-            "AG0",
-            "AG1",
-            "AG2",
-            "AG3",
-            "AG4",
-            "AG5",
-            "AG6",
-            "AG7",
-            "AG8",
-            "AG9"
-        };
 
         internal List<string> storedStringsArray = new List<string>();
 
@@ -74,10 +59,34 @@ namespace JSI
         private List<ProtoCrewMember> localCrew = new List<ProtoCrewMember>();
         private List<kerbalExpressionSystem> localCrewMedical = new List<kerbalExpressionSystem>();
 
-        private readonly VariableCollection variableCollection = new VariableCollection();
+        // Processing cache!
+        private class VariableCache
+        {
+            internal VariableEvaluator evaluator;
+            internal VariableOrNumber value;
+            internal event Action<float> onChangeCallbacks;
+            internal event Action<bool> onResourceDepletedCallbacks;
+            internal bool cacheable;
+
+            internal void FireCallbacks(float newValue)
+            {
+                if (onChangeCallbacks != null)
+                {
+                    onChangeCallbacks(newValue);
+                }
+
+                if (onResourceDepletedCallbacks != null)
+                {
+                    onResourceDepletedCallbacks.Invoke(newValue < 0.01f);
+                }
+            }
+        };
+
+        private readonly Dictionary<string, VariableCache> variableCache = new Dictionary<string, VariableCache>();
+        private readonly List<VariableCache> updatableVariables = new List<VariableCache>();
         private readonly List<IJSIModule> installedModules = new List<IJSIModule>();
         private readonly HashSet<string> unrecognizedVariables = new HashSet<string>();
-        private readonly Dictionary<string, IComplexVariable> customVariables = new Dictionary<string, IComplexVariable>();
+        private Dictionary<string, IComplexVariable> customVariables = new Dictionary<string, IComplexVariable>();
 
         private class PeriodicRandomValue
         {
@@ -97,6 +106,8 @@ namespace JSI
         // Data refresh
         private int dataUpdateCountdown;
         private int refreshDataRate = 60;
+        private bool timeToUpdate = false;
+        private bool forceCallbackRefresh = false;
 
         // Diagnostics
         private int debug_fixedUpdates = 0;
@@ -113,20 +124,34 @@ namespace JSI
 
         private ExternalVariableHandlers plugins = null;
         internal Dictionary<string, Color32> overrideColors = new Dictionary<string, Color32>();
-        private int selectedPatchIndex;
 
-        static readonly Regex x_agmemoRegex = new Regex("^AG([0-9])\\s*=\\s*(.*)\\s*");
-
-        public static RasterPropMonitorComputer FindFromProp(InternalProp prop)
+        /// <summary>
+        /// Request the instance, create it if one doesn't exist.
+        /// </summary>
+        /// <param name="referenceLocation">Prop or part where the RPMC should be.</param>
+        /// <param name="createIfMissing">Create the RPMC if it's not already present.</param>
+        /// <returns>The RPMC, or null if it can't be or wasn't created.</returns>
+        public static RasterPropMonitorComputer Instantiate(MonoBehaviour referenceLocation, bool createIfMissing)
         {
-            var rpmc = prop.part.FindModuleImplementing<RasterPropMonitorComputer>();
-
-            if (rpmc == null)
+            var thatProp = referenceLocation as InternalProp;
+            var thatPart = referenceLocation as Part;
+            if (thatPart == null)
             {
-                JUtil.LogErrorMessage(null, "No RasterPropMonitorComputer module found on part {0} for prop {1} in internal {2}", prop.part.partInfo.name, prop.propName, prop.internalModel.internalName);
+                if (thatProp == null)
+                {
+                    //throw new ArgumentException("Cannot instantiate RPMC in this location.");
+                    return null;
+                }
+                thatPart = thatProp.part;
             }
-
-            return rpmc;
+            for (int i = 0; i < thatPart.Modules.Count; i++)
+            {
+                if (thatPart.Modules[i].ClassName == typeof(RasterPropMonitorComputer).Name)
+                {
+                    return thatPart.Modules[i] as RasterPropMonitorComputer;
+                }
+            }
+            return (createIfMissing) ? thatPart.AddModule(typeof(RasterPropMonitorComputer).Name) as RasterPropMonitorComputer : null;
         }
 
         // Page handler interface for vessel description page.
@@ -145,6 +170,42 @@ namespace JSI
         }
 
         /// <summary>
+        /// This intermediary will cache the results so that multiple variable
+        /// requests within the frame would not result in duplicated code.
+        /// </summary>
+        /// <param name="input"></param>
+        /// <returns></returns>
+        public object ProcessVariable(string input, RPMVesselComputer comp)
+        {
+            input = input.Trim();
+
+            if (RPMGlobals.debugShowVariableCallCount)
+            {
+                debug_callCount[input] = debug_callCount[input] + 1;
+            }
+
+            if (comp == null)
+            {
+                comp = RPMVesselComputer.Instance(vid);
+            }
+
+            if (!variableCache.ContainsKey(input))
+            {
+                AddVariable(input);
+            }
+
+            VariableCache vc = variableCache[input];
+            if (vc.cacheable)
+            {
+                return vc.value.Get();
+            }
+            else
+            {
+                return vc.evaluator(input, comp);
+            }
+        }
+
+        /// <summary>
         /// Register a callback to receive notifications when a variable has changed.
         /// Used to prevent polling of low-frequency, high-utilization variables.
         /// </summary>
@@ -152,9 +213,15 @@ namespace JSI
         /// <param name="cb"></param>
         public void RegisterVariableCallback(string variableName, Action<float> cb)
         {
-            var vc = InstantiateVariableOrNumber(variableName);
+            variableName = variableName.Trim();
+            if (!variableCache.ContainsKey(variableName))
+            {
+                AddVariable(variableName);
+            }
+
+            VariableCache vc = variableCache[variableName];
             vc.onChangeCallbacks += cb;
-            cb(vc.AsFloat());
+            cb((float)vc.value.numericValue);
         }
 
         /// <summary>
@@ -164,10 +231,10 @@ namespace JSI
         /// <param name="cb"></param>
         public void UnregisterVariableCallback(string variableName, Action<float> cb)
         {
-            var vc = variableCollection.GetVariable(variableName);
-            if (vc != null)
+            variableName = variableName.Trim();
+            if (variableCache.ContainsKey(variableName))
             {
-                vc.onChangeCallbacks -= cb;
+                variableCache[variableName].onChangeCallbacks -= cb;
             }
         }
 
@@ -179,9 +246,15 @@ namespace JSI
         /// <param name="cb"></param>
         public void RegisterResourceCallback(string variableName, Action<bool> cb)
         {
-            var vc = InstantiateVariableOrNumber(variableName);
+            variableName = variableName.Trim();
+            if (!variableCache.ContainsKey(variableName))
+            {
+                AddVariable(variableName);
+            }
+
+            VariableCache vc = variableCache[variableName];
             vc.onResourceDepletedCallbacks += cb;
-            cb(vc.AsDouble() < 0.01);
+            cb(vc.value.numericValue < 0.01);
         }
 
         /// <summary>
@@ -191,10 +264,10 @@ namespace JSI
         /// <param name="cb"></param>
         public void UnregisterResourceCallback(string variableName, Action<bool> cb)
         {
-            var vc = variableCollection?.GetVariable(variableName);
-            if (vc != null)
+            variableName = variableName.Trim();
+            if (variableCache.ContainsKey(variableName))
             {
-                vc.onResourceDepletedCallbacks -= cb;
+                variableCache[variableName].onResourceDepletedCallbacks -= cb;
             }
         }
 
@@ -206,87 +279,63 @@ namespace JSI
         /// <returns>The VariableOrNumber</returns>
         public VariableOrNumber InstantiateVariableOrNumber(string variableName)
         {
-            if (string.IsNullOrWhiteSpace(variableName)) return null;
-
             variableName = variableName.Trim();
-            var variable = variableCollection.GetVariable(variableName);
-            if (variable == null)
+            if (!variableCache.ContainsKey(variableName))
             {
-                variable = AddVariable(variableName);
+                AddVariable(variableName);
             }
 
-            return variable;
+            return variableCache[variableName].value;
         }
 
         /// <summary>
-        /// Add a variable to the VariableOrNumber
+        /// Add a variable to the variableCache
         /// </summary>
         /// <param name="variableName"></param>
-        private VariableOrNumber AddVariable(string variableName)
+        private void AddVariable(string variableName)
         {
-            RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
-            VariableOrNumber vc;
-            
-            // try to find a numeric evaluator first
-            var numericEvaluator = GetNumericEvaluator(variableName, out VariableUpdateType updateType);
-            if (numericEvaluator != null)
-            {
-                vc = new VariableOrNumber(variableName, numericEvaluator, comp, updateType, updateType == VariableUpdateType.Volatile ? this : null);
-            }
-            else
-            {
-                // if that doesnt' work, look for a generic one
-                var evaluator = GetEvaluator(variableName, out updateType);
-                if (evaluator == null) updateType = VariableUpdateType.Constant;
-                vc = new VariableOrNumber(variableName, evaluator, comp, updateType, updateType == VariableUpdateType.Volatile ? this : null);
+            VariableCache vc = new VariableCache();
+            bool cacheable;
+            vc.evaluator = GetEvaluator(variableName, out cacheable);
+            vc.value = new VariableOrNumber(variableName, cacheable, this);
+            vc.cacheable = cacheable;
 
-                if (evaluator == null && !unrecognizedVariables.Contains(variableName))
+            if (vc.value.variableType == VariableOrNumber.VoNType.VariableValue)
+            {
+                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
+                object value = vc.evaluator(variableName, comp);
+                if (value is string)
                 {
-                    unrecognizedVariables.Add(variableName);
-                    JUtil.LogErrorMessage(this, "Unrecognized variable {0}", variableName);
-                }
-            }
+                    vc.value.stringValue = value as string;
+                    vc.value.isNumeric = false;
+                    vc.value.numericValue = 0.0;
 
-            variableCollection.AddVariable(vc);
-
-            return vc;
-        }
-
-        public override void OnLoad(ConfigNode node)
-        {
-            m_persistentVariables.Load(node);
-
-            if (HighLogic.LoadedScene == GameScenes.LOADING)
-            {
-                foreach (var overrideColorSetup in node.GetNodes("RPM_COLOROVERRIDE"))
-                {
-                    foreach (var colorConfig in overrideColorSetup.GetNodes("COLORDEFINITION"))
+                    // If the evaluator returns the variableName, then we
+                    // have an unknown variable.  Change the VoN type to
+                    // ConstantString so we don't waste cycles on update to
+                    // reevaluate it.
+                    if (vc.value.stringValue == variableName && !unrecognizedVariables.Contains(variableName))
                     {
-                        string name = colorConfig.GetValue("name");
-                        Color32 color = default(Color);
-
-                        if (name != null && colorConfig.TryGetValue("color", ref color))
-                        {
-                            name = "COLOR_" + name.Trim();
-
-                            overrideColors[name] = color;
-                        }
+                        vc.value.variableType = VariableOrNumber.VoNType.ConstantString;
+                        unrecognizedVariables.Add(variableName);
+                        JUtil.LogInfo(this, "Unrecognized variable {0}", variableName);
                     }
                 }
-            }
-            else if (HighLogic.LoadedSceneIsFlight)
-            {
-                var modulePrefab = part.partInfo.partPrefab.FindModuleImplementing<RasterPropMonitorComputer>();
-                if (modulePrefab != null)
+                else
                 {
-                    overrideColors = modulePrefab.overrideColors;
+                    vc.value.numericValue = value.MassageToDouble();
+                    vc.value.isNumeric = true;
                 }
             }
-        }
 
-        public override void OnSave(ConfigNode node)
-        {
-            m_persistentVariables.Save(node);
+            variableCache.Add(variableName, vc);
+
+            if (vc.value.variableType == VariableOrNumber.VoNType.VariableValue)
+            {
+                // Only variables that are really variable need to be checked
+                // during FixedUpdate.
+                updatableVariables.Add(vc);
+            }
         }
 
         /// <summary>
@@ -307,91 +356,16 @@ namespace JSI
 
         /// <summary>
         /// Clear out variables to force them to be re-evaluated.  TODO: Do
-        /// I clear out the VariableOrNumber?
+        /// I clear out the variableCache?
         /// </summary>
         private void ClearVariables()
         {
             sideSlipEvaluator = null;
             angleOfAttackEvaluator = null;
-        }
 
-        // provide a way for internal modules to remove themselves temporarily from InternalProps
-        // this allows modules to "go to sleep" so we don't spend time updating them
-
-        private List<InternalModule> modulesToRemove = new List<InternalModule>();
-        private List<InternalModule> modulesToRestore = new List<InternalModule>();
-
-        public void RemoveInternalModule(InternalModule module)
-        {
-            modulesToRemove.Add(module);
-        }
-
-        public void RestoreInternalModule(InternalModule module)
-        {
-            modulesToRestore.Add(module);
-        }
-
-        /// <summary>
-        /// Find the selected orbital patch. A patch is selected if we are
-        /// looking at it.
-        /// </summary>
-        /// <returns>
-        /// 1. The count of the patch. 0 for current orbit, 1 for next SOI, and
-        ///     so on
-        /// 2. The orbit object that represents the patch.
-        /// </returns>
-        internal (int, Orbit) GetSelectedPatch()
-        {
-            return EffectivePatch(selectedPatchIndex);
-        }
-
-        private Orbit GetSelectedPatchOrbit()
-        {
-            (int _, Orbit patch) = GetSelectedPatch();
-            return patch;
-        }
-
-        internal (int, Orbit) GetLastPatch()
-        {
-            return EffectivePatch(1000);
-        }
-
-        internal void SelectNextPatch()
-        {
-            (int effectivePatchIndex, _) = GetSelectedPatch();
-            SelectPatch(effectivePatchIndex + 1);
-        }
-
-        internal void SelectPreviousPatch()
-        {
-            (int effectivePatchIndex, _) = GetSelectedPatch();
-            SelectPatch(effectivePatchIndex - 1);
-        }
-
-        private void SelectPatch(int patchIndex)
-        {
-            (int effectivePatchIndex, _) = EffectivePatch(patchIndex);
-            selectedPatchIndex = effectivePatchIndex;
-        }
-
-        /// <summary>
-        /// Returns the orbit (patch) and orbit index given a selection.
-        /// </summary>
-        /// <returns>true if it's time to update things</returns>
-        private (int, Orbit) EffectivePatch(int patchIndex)
-        {
-            Orbit patch = vessel.orbit;
-            int effectivePatchIndex = 0;
-            while (effectivePatchIndex < patchIndex
-                && patch.nextPatch != null
-                && patch.nextPatch.activePatch
-                && (patch.patchEndTransition == Orbit.PatchTransitionType.ENCOUNTER || patch.patchEndTransition == Orbit.PatchTransitionType.ESCAPE))
-            {
-                patch = patch.nextPatch;
-                effectivePatchIndex++;
-            }
-
-            return (effectivePatchIndex, patch);
+            forceCallbackRefresh = true;
+            //variableCache.Clear();
+            timeToUpdate = true;
         }
 
         #region Monobehaviour
@@ -409,11 +383,16 @@ namespace JSI
                 GameEvents.onVesselChange.Add(onVesselChange);
                 GameEvents.onVesselCrewWasModified.Add(onVesselCrewWasModified);
 
-                IJSIModule.CreateJSIModules(installedModules, vessel);
-
+                installedModules.Add(new JSIParachute(vessel));
+                installedModules.Add(new JSIMechJeb(vessel));
+                installedModules.Add(new JSIInternalRPMButtons(vessel));
+                installedModules.Add(new JSIFAR(vessel));
+                installedModules.Add(new JSIKAC(vessel));
 #if ENABLE_ENGINE_MONITOR
                 installedModules.Add(new JSIEngine(vessel));
 #endif
+                installedModules.Add(new JSIPilotAssistant(vessel));
+                installedModules.Add(new JSIChatterer(vessel));
 
                 if (string.IsNullOrEmpty(RPMCid))
                 {
@@ -443,18 +422,30 @@ namespace JSI
 
                 plugins = new ExternalVariableHandlers(part);
 
+                RPMVesselComputer comp = RPMVesselComputer.Instance(vessel);
+                if (!string.IsNullOrEmpty(vesselDescription))
+                {
+                    comp.SetVesselDescription(vesselDescription);
+                }
+                var restoredPersistents = comp.RestorePersistents(id);
+                if (restoredPersistents != null)
+                {
+                    persistentVars = restoredPersistents;
+                }
+
                 // Make sure we have the description strings parsed.
                 string[] descriptionStrings = vesselDescription.UnMangleConfigText().Split(JUtil.LineSeparator, StringSplitOptions.None);
                 for (int i = 0; i < descriptionStrings.Length; i++)
                 {
-                    var match = x_agmemoRegex.Match(descriptionStrings[i]);
-                    if (match.Success && match.Groups.Count == 3 && uint.TryParse(match.Groups[1].Value, out uint groupID) && groupID < actionGroupMemo.Length)
+                    if (descriptionStrings[i].StartsWith("AG", StringComparison.Ordinal) && descriptionStrings[i][3] == '=')
                     {
-                        descriptionStrings[i] = string.Empty;
-                        actionGroupMemo[groupID] = match.Groups[2].Value;
+                        uint groupID;
+                        if (uint.TryParse(descriptionStrings[i][2].ToString(), out groupID))
+                        {
+                            descriptionStrings[i] = string.Empty;
+                        }
                     }
                 }
-
                 vesselDescriptionForDisplay = string.Join(Environment.NewLine, descriptionStrings).MangleConfigText();
                 if (string.IsNullOrEmpty(vesselDescriptionForDisplay))
                 {
@@ -480,6 +471,35 @@ namespace JSI
                     for (int i = 0; i < varstring.Length; ++i)
                     {
                         AddTriggeredEvent(varstring[i].Trim());
+                    }
+                }
+
+                ConfigNode[] moduleConfigs = part.partInfo.partConfig.GetNodes("MODULE");
+                for (int moduleId = 0; moduleId < moduleConfigs.Length; ++moduleId)
+                {
+                    if (moduleConfigs[moduleId].GetValue("name") == moduleName)
+                    {
+                        ConfigNode[] overrideColorSetup = moduleConfigs[moduleId].GetNodes("RPM_COLOROVERRIDE");
+                        for (int colorGrp = 0; colorGrp < overrideColorSetup.Length; ++colorGrp)
+                        {
+                            ConfigNode[] colorConfig = overrideColorSetup[colorGrp].GetNodes("COLORDEFINITION");
+                            for (int defIdx = 0; defIdx < colorConfig.Length; ++defIdx)
+                            {
+                                if (colorConfig[defIdx].HasValue("name") && colorConfig[defIdx].HasValue("color"))
+                                {
+                                    string name = "COLOR_" + (colorConfig[defIdx].GetValue("name").Trim());
+                                    Color32 color = ConfigNode.ParseColor32(colorConfig[defIdx].GetValue("color").Trim());
+                                    if (overrideColors.ContainsKey(name))
+                                    {
+                                        overrideColors[name] = color;
+                                    }
+                                    else
+                                    {
+                                        overrideColors.Add(name, color);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -549,7 +569,7 @@ namespace JSI
                 // we update crew assignments, so we keep polling it here.
                 for (int i = 0; i < part.internalModel.seats.Count; i++)
                 {
-                    if (localCrew[i] != null && localCrew[i].KerbalRef != null)
+                    if (localCrew[i] != null)
                     {
                         kerbalExpressionSystem kES = localCrewMedical[i];
                         localCrew[i].KerbalRef.GetComponentCached<kerbalExpressionSystem>(ref kES);
@@ -563,30 +583,60 @@ namespace JSI
             }
         }
 
-        void UpdateVariables()
+        public void FixedUpdate()
         {
-            UpdateLocalVars();
-
-            RPMVesselComputer comp = RPMVesselComputer.Instance(vid);
-
-            for (int i = 0; i < periodicRandomVals.Count; ++i)
+            if (JUtil.RasterPropMonitorShouldUpdate(vessel) && timeToUpdate)
             {
-                periodicRandomVals[i].counter -= refreshDataRate;
-                if (periodicRandomVals[i].counter <= 0)
+                UpdateLocalVars();
+
+                RPMVesselComputer comp = RPMVesselComputer.Instance(vid);
+
+                for (int i = 0; i < periodicRandomVals.Count; ++i)
                 {
-                    periodicRandomVals[i].counter = periodicRandomVals[i].period;
-                    periodicRandomVals[i].value = UnityEngine.Random.value;
+                    periodicRandomVals[i].counter -= refreshDataRate;
+                    if (periodicRandomVals[i].counter <= 0)
+                    {
+                        periodicRandomVals[i].counter = periodicRandomVals[i].period;
+                        periodicRandomVals[i].value = UnityEngine.Random.value;
+                    }
                 }
-            }
 
-            variableCollection.Update(comp);
+                for (int i = 0; i < updatableVariables.Count; ++i)
+                {
+                    VariableCache vc = updatableVariables[i];
+                    float oldVal = vc.value.AsFloat();
+                    double newVal;
 
-            ++debug_fixedUpdates;
+                    object evaluant = vc.evaluator(vc.value.variableName, comp);
+                    if (evaluant is string)
+                    {
+                        vc.value.isNumeric = false;
+                        vc.value.stringValue = evaluant as string;
+                        newVal = 0.0;
+                    }
+                    else
+                    {
+                        newVal = evaluant.MassageToDouble();
+                        vc.value.isNumeric = true;
+                    }
+                    vc.value.numericValue = newVal;
 
-            Vessel v = vessel;
-            for (int i = 0; i < activeTriggeredEvents.Count; ++i)
-            {
-                activeTriggeredEvents[i].Update(v);
+                    if (!Mathf.Approximately(oldVal, (float)newVal) || forceCallbackRefresh == true)
+                    {
+                        vc.FireCallbacks((float)newVal);
+                    }
+                }
+
+                ++debug_fixedUpdates;
+
+                forceCallbackRefresh = false;
+                timeToUpdate = false;
+
+                Vessel v = vessel;
+                for (int i = 0; i < activeTriggeredEvents.Count; ++i)
+                {
+                    activeTriggeredEvents[i].Update(v);
+                }
             }
         }
 
@@ -598,68 +648,21 @@ namespace JSI
             if (HighLogic.LoadedSceneIsEditor)
             {
                 // well, it looks sometimes it might become null..
-                string s = EditorLogic.fetch != null && EditorLogic.fetch.shipDescriptionField != null
-                    ? EditorLogic.fetch.shipDescriptionField.text
-                    : string.Empty;
-
+                string s = EditorLogic.fetch.shipDescriptionField != null ? EditorLogic.fetch.shipDescriptionField.text : string.Empty;
                 if (s != lastVesselDescription)
                 {
                     lastVesselDescription = s;
                     // For some unclear reason, the newline in this case is always 0A, rather than Environment.NewLine.
-                    vesselDescription = s.MangleConfigText();
+                    vesselDescription = s.Replace(editorNewline, "$$$");
                 }
             }
-            else
+            else if (JUtil.IsActiveVessel(vessel))
             {
-                if (JUtil.RasterPropMonitorShouldUpdate(part))
+                if (--dataUpdateCountdown < 0)
                 {
-                    if (--dataUpdateCountdown < 0)
-                    {
-                        dataUpdateCountdown = refreshDataRate;
-                        UpdateVariables();
-                    }
+                    dataUpdateCountdown = refreshDataRate;
+                    timeToUpdate = true;
                 }
-
-                // handle InternalModules that want to activate/deactivate
-
-                foreach (var module in modulesToRemove)
-                {
-                    module.internalProp.internalModules.Remove(module);
-                }
-                modulesToRemove.Clear();
-
-                foreach (var module in modulesToRestore)
-                {
-                    int insertIndex = 0;
-                    for (; insertIndex < module.internalProp.internalModules.Count; ++insertIndex)
-                    {
-                        InternalModule otherModule = module.internalProp.internalModules[insertIndex];
-                        if (module.moduleID < otherModule.moduleID)
-                        {
-                            break;
-                        }
-                        else if (module.moduleID == otherModule.moduleID)
-                        {
-                            if (module != otherModule)
-                            {
-                                JUtil.LogErrorMessage(this, "Tried to restore internalmodule {0} in prop {1} at index {2} but module {3} is already at that id", module.ClassName, module.internalProp.propName, insertIndex, otherModule.ClassName);
-                            }
-                            else
-                            {
-                                // tried to restore something that was already here
-                                insertIndex = -1;
-                            }
-
-                            break;
-                        }
-                    }
-
-                    if (insertIndex >= 0)
-                    {
-                        module.internalProp.internalModules.Insert(insertIndex, module);
-                    }
-                }
-                modulesToRestore.Clear();
             }
         }
 
@@ -690,16 +693,19 @@ namespace JSI
                     JUtil.LogMessage(this, "{0} queried {1} times {2:0.0} calls/FixedUpdate", l[i].Key, l[i].Value, (float)(l[i].Value) / (float)(debug_fixedUpdates));
                 }
 
-                JUtil.LogMessage(this, "{0} total variables were instantiated in this part", variableCollection.Count);
-                JUtil.LogMessage(this, "{0} variables were polled every {1} updates in the VariableOrNumber", variableCollection.UpdatableCount, refreshDataRate);
+                JUtil.LogMessage(this, "{0} total variables were instantiated in this part", variableCache.Count);
+                JUtil.LogMessage(this, "{0} variables were polled every {1} updates in the VariableCache", updatableVariables.Count, refreshDataRate);
             }
 
             localCrew.Clear();
             localCrewMedical.Clear();
 
-            installedModules.Clear();
+            for (int i = 0; i < installedModules.Count; ++i)
+            {
+                installedModules[i].vessel = null;
+            }
 
-            variableCollection.Clear();
+            variableCache.Clear();
             ClearVariables();
         }
 

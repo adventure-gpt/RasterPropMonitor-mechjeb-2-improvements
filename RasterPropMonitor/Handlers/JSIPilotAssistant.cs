@@ -35,7 +35,7 @@ namespace JSI
      */
     class JSIPilotAssistant : IJSIModule
     {
-        public static readonly bool paFound;
+        static private readonly bool paFound;
         // AsstVesselModule.vesselAsst
         private static readonly FieldInfo vesselAsst_t;
 
@@ -223,11 +223,11 @@ namespace JSI
             }
 
             paFound = true;
-            IJSIModule.RegisterModule(typeof(JSIPilotAssistant));
         }
 
-        public JSIPilotAssistant(Vessel myVessel) : base(myVessel)
+        public JSIPilotAssistant(Vessel myVessel)
         {
+            vessel = myVessel;
             JUtil.LogMessage(this, "A supported version of Pilot Assistant is {0}", (paFound) ? "present" : "not available");
         }
 

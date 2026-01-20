@@ -1,4 +1,3 @@
-﻿using KSP.Localization;
 using UnityEngine;
 
 namespace JSI
@@ -44,49 +43,11 @@ namespace JSI
 
         }
 
-        // Note: this function is from FreeIva
-        KerbalEVA SpawnEVA(ProtoCrewMember pCrew, Part airlockPart, Transform fromAirlock)
-        {
-            var flightEVA = FlightEVA.fetch;
-
-            Part crewPart = pCrew.KerbalRef.InPart;
-
-            if (FlightEVA.HatchIsObstructed(part, fromAirlock)) // NOTE: stock code also checks hatchInsideFairing
-            {
-                ScreenMessages.PostScreenMessage(Localizer.Format("#autoLOC_111978"), 5f, ScreenMessageStyle.UPPER_CENTER);
-                return null;
-            }
-            flightEVA.overrideEVA = false;
-            GameEvents.onAttemptEva.Fire(pCrew, crewPart, fromAirlock);
-            if (flightEVA.overrideEVA)
-            {
-                return null;
-            }
-
-            // at this point we're *definitely* going EVA
-            // manipulate the crew assignments to make this work.
-            if (crewPart != airlockPart)
-            {
-                crewPart.RemoveCrewmember(pCrew);
-
-                ++airlockPart.CrewCapacity;
-                airlockPart.AddCrewmember(pCrew);
-                pCrew.KerbalRef.InPart = airlockPart;
-                --airlockPart.CrewCapacity;
-            }
-
-            flightEVA.pCrew = pCrew;
-            flightEVA.fromPart = airlockPart;
-            flightEVA.fromAirlock = fromAirlock;
-            return flightEVA.onGoForEVA();
-        }
-
         private void GoEva()
         {
-            if (activeKerbal != null && part.airlock != null)
+            if (activeKerbal != null)
             {
-                //FlightEVA.SpawnEVA(activeKerbal);
-                SpawnEVA(activeKerbal.protoCrewMember, part, part.airlock);
+                FlightEVA.SpawnEVA(activeKerbal);
                 CameraManager.Instance.SetCameraFlight();
                 activeKerbal = null;
             }
@@ -110,7 +71,7 @@ namespace JSI
 
         public void EVAClick()
         {
-            Kerbal thatKerbal = CameraManager.Instance.IVACameraActiveKerbal;
+            Kerbal thatKerbal = part.FindCurrentKerbal();
 
             float acLevel = ScenarioUpgradeableFacilities.GetFacilityLevel(SpaceCenterFacility.AstronautComplex);
             bool evaUnlocked = GameVariables.Instance.UnlockedEVA(acLevel);
