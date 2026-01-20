@@ -502,10 +502,6 @@ namespace JSI
                 core => MechJebProxy.GetAscentAltitude(core) / 1000.0,
                 (core, val) => MechJebProxy.SetAscentAltitude(core, val * 1000.0),
                 1.0, v => v.ToString("F1") + " km", null, true, 1.0, false, 0);
-            AddNumericItem(menu, "Target Apoapsis",
-                core => MechJebProxy.GetAscentApoapsis(core) / 1000.0,
-                (core, val) => MechJebProxy.SetAscentApoapsis(core, val * 1000.0),
-                1.0, v => v.ToString("F1") + " km", null, true, 1.0, false, 0);
             AddNumericItem(menu, "Target Inclination",
                 core => MechJebProxy.GetAscentInclination(core),
                 (core, val) => MechJebProxy.SetAscentInclination(core, val),
@@ -2820,7 +2816,6 @@ namespace JSI
             AddMenuItem(menu, "Warp to Node", () => WarpToNode(),
                 core => vessel != null && vessel.patchedConicSolver != null &&
                         vessel.patchedConicSolver.maneuverNodes.Count > 0);
-            AddMenuItem(menu, "Warp to SOI Change", () => WarpToSOI());
             AddMenuItem(menu, "[BACK]", () => PopMenu());
 
             return menu;

@@ -1043,7 +1043,13 @@ namespace JSI
             f_Ascent_AutoTurnSpdFactor = t_AscentSettings.GetField("AutoTurnSpdFactor", BindingFlags.Public | BindingFlags.Instance);
 
             p_Ascent_Autostage = t_AscentSettings.GetProperty("Autostage", BindingFlags.Public | BindingFlags.Instance);
-            f_Ascent_Autostage = t_AscentSettings.GetField("_autostage", BindingFlags.NonPublic | BindingFlags.Instance);
+            // In MJ 2.15.1, Autostage is a public field, not a private backing field
+            f_Ascent_Autostage = t_AscentSettings.GetField("Autostage", BindingFlags.Public | BindingFlags.Instance);
+            if (f_Ascent_Autostage == null)
+            {
+                // Fallback for older versions that might use a private backing field
+                f_Ascent_Autostage = t_AscentSettings.GetField("_autostage", BindingFlags.NonPublic | BindingFlags.Instance);
+            }
 
             if (t_AscentBaseAutopilot != null)
             {
@@ -1078,39 +1084,39 @@ namespace JSI
         {
             if (t_ThrustController == null) return;
 
-            f_Thrust_LimitToPreventOverheats = t_ThrustController.GetField("limitToPreventOverheats", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_LimitToTerminalVelocity = t_ThrustController.GetField("limitToTerminalVelocity", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_LimitToMaxDynamicPressure = t_ThrustController.GetField("limitDynamicPressure", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_MaxDynamicPressure = t_ThrustController.GetField("maxDynamicPressure", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_LimitAcceleration = t_ThrustController.GetField("limitAcceleration", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_MaxAcceleration = t_ThrustController.GetField("maxAcceleration", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_LimitThrottle = t_ThrustController.GetField("limitThrottle", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_MaxThrottle = t_ThrustController.GetField("maxThrottle", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_LimiterMinThrottle = t_ThrustController.GetField("limiterMinThrottle", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_MinThrottle = t_ThrustController.GetField("minThrottle", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_LimitToPreventFlameout = t_ThrustController.GetField("limitToPreventFlameout", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_FlameoutSafetyPct = t_ThrustController.GetField("flameoutSafetyPct", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_SmoothThrottle = t_ThrustController.GetField("smoothThrottle", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_ManageIntakes = t_ThrustController.GetField("manageIntakes", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_DifferentialThrottle = t_ThrustController.GetField("differentialThrottle", BindingFlags.Public | BindingFlags.Instance);
-            f_Thrust_DifferentialThrottleSuccess = t_ThrustController.GetField("differentialThrottleSuccess", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_LimitToPreventOverheats = t_ThrustController.GetField("LimitToPreventOverheats", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_LimitToTerminalVelocity = t_ThrustController.GetField("LimitToTerminalVelocity", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_LimitToMaxDynamicPressure = t_ThrustController.GetField("LimitDynamicPressure", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_MaxDynamicPressure = t_ThrustController.GetField("MaxDynamicPressure", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_LimitAcceleration = t_ThrustController.GetField("LimitAcceleration", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_MaxAcceleration = t_ThrustController.GetField("MaxAcceleration", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_LimitThrottle = t_ThrustController.GetField("LimitThrottle", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_MaxThrottle = t_ThrustController.GetField("MaxThrottle", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_LimiterMinThrottle = t_ThrustController.GetField("LimiterMinThrottle", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_MinThrottle = t_ThrustController.GetField("MinThrottle", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_LimitToPreventFlameout = t_ThrustController.GetField("LimitToPreventFlameout", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_FlameoutSafetyPct = t_ThrustController.GetField("FlameoutSafetyPct", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_SmoothThrottle = t_ThrustController.GetField("SmoothThrottle", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_ManageIntakes = t_ThrustController.GetField("ManageIntakes", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_DifferentialThrottle = t_ThrustController.GetField("DifferentialThrottle", BindingFlags.Public | BindingFlags.Instance);
+            f_Thrust_DifferentialThrottleSuccess = t_ThrustController.GetField("DifferentialThrottleSuccess", BindingFlags.Public | BindingFlags.Instance);
         }
 
         private static void InitializeStagingMembers()
         {
             if (t_StagingController == null) return;
 
-            f_Staging_Autostage = t_StagingController.GetField("autostage", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_AutostageLimit = t_StagingController.GetField("autostageLimit", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_AutostagePreDelay = t_StagingController.GetField("autostagePreDelay", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_AutostagePostDelay = t_StagingController.GetField("autostagePostDelay", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_ClampAutoStageThrustPct = t_StagingController.GetField("clampAutoStageThrustPct", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_FairingMaxAerothermalFlux = t_StagingController.GetField("fairingMaxAerothermalFlux", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_FairingMaxDynamicPressure = t_StagingController.GetField("fairingMaxDynamicPressure", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_FairingMinAltitude = t_StagingController.GetField("fairingMinAltitude", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_HotStagingLeadTime = t_StagingController.GetField("hotStagingLeadTime", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_DropSolids = t_StagingController.GetField("dropSolids", BindingFlags.Public | BindingFlags.Instance);
-            f_Staging_DropSolidsLeadTime = t_StagingController.GetField("dropSolidsLeadTime", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_Autostage = t_StagingController.GetField("Autostage", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_AutostageLimit = t_StagingController.GetField("AutostageLimit", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_AutostagePreDelay = t_StagingController.GetField("AutostagePreDelay", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_AutostagePostDelay = t_StagingController.GetField("AutostagePostDelay", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_ClampAutoStageThrustPct = t_StagingController.GetField("ClampAutoStageThrustPct", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_FairingMaxAerothermalFlux = t_StagingController.GetField("FairingMaxAerothermalFlux", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_FairingMaxDynamicPressure = t_StagingController.GetField("FairingMaxDynamicPressure", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_FairingMinAltitude = t_StagingController.GetField("FairingMinAltitude", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_HotStagingLeadTime = t_StagingController.GetField("HotStagingLeadTime", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_DropSolids = t_StagingController.GetField("DropSolids", BindingFlags.Public | BindingFlags.Instance);
+            f_Staging_DropSolidsLeadTime = t_StagingController.GetField("DropSolidsLeadTime", BindingFlags.Public | BindingFlags.Instance);
             m_Staging_AutostageOnce = t_StagingController.GetMethod("AutostageOnce", BindingFlags.Public | BindingFlags.Instance);
         }
 
