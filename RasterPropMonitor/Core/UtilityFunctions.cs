@@ -1710,11 +1710,11 @@ namespace JSI
             JUtil.LogInfo(this, "Loading shader bundle from: {0}", shaderBundlePath);
             AssetBundle bundle = AssetBundle.LoadFromFile(shaderBundlePath);
 
-            // Fall back to JhonnyOthan fork naming (platform-agnostic)
+            // Fall back to FirstPersonKSP unified shader bundle naming (platform-agnostic)
             if (bundle == null)
             {
                 shaderBundlePath = assetsPath + "rasterpropmonitor-shaders.assetbundle";
-                JUtil.LogInfo(this, "Trying alternate shader bundle: {0}", shaderBundlePath);
+                JUtil.LogInfo(this, "Trying unified shader bundle: {0}", shaderBundlePath);
                 bundle = AssetBundle.LoadFromFile(shaderBundlePath);
             }
 
