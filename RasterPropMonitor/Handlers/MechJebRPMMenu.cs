@@ -246,6 +246,8 @@ namespace JSI
                 UpdateTrackedItems();
             };
 
+            // Use color highlighting for toggles - green when enabled, normal when disabled
+            // No checkbox prefix needed since RPM interprets [text] as color tags
             var newItem = new TextMenu.Item(label, toggleAction);
             menu.Add(newItem);
 
@@ -254,8 +256,7 @@ namespace JSI
                 item = newItem,
                 id = label,
                 isEnabled = enabledCheck ?? (core => true),
-                isSelected = getValue,
-                getLabel = core => getValue(core) ? "[X] " + label : "[ ] " + label
+                isSelected = getValue  // This makes the item green when checked
             });
         }
 
@@ -1277,11 +1278,14 @@ namespace JSI
                 core => MechJebProxy.GetOperationBool(MechJebProxy.GetOperationByName(opName), "Coplanar"),
                 (core, val) => MechJebProxy.SetOperationBool(MechJebProxy.GetOperationByName(opName), "Coplanar", val));
 
-            // Rendezvous vs Transfer radio buttons - dynamic labels based on current state
-            AddMenuItem(menu, () => MechJebProxy.GetOperationBool(MechJebProxy.GetOperationByName(opName), "Rendezvous") ? "[*] Rendezvous" : "[ ] Rendezvous",
-                () => MechJebProxy.SetOperationBool(MechJebProxy.GetOperationByName(opName), "Rendezvous", true));
-            AddMenuItem(menu, () => !MechJebProxy.GetOperationBool(MechJebProxy.GetOperationByName(opName), "Rendezvous") ? "[*] Transfer" : "[ ] Transfer",
-                () => MechJebProxy.SetOperationBool(MechJebProxy.GetOperationByName(opName), "Rendezvous", false));
+            // Rendezvous vs Transfer radio buttons - use isSelected for green highlighting
+            var rendezvousItem = new TextMenu.Item("Rendezvous", (idx, item) => MechJebProxy.SetOperationBool(MechJebProxy.GetOperationByName(opName), "Rendezvous", true));
+            menu.Add(rendezvousItem);
+            trackedItems.Add(new TrackedMenuItem { item = rendezvousItem, id = "HohmannRendezvous", isSelected = core => MechJebProxy.GetOperationBool(MechJebProxy.GetOperationByName(opName), "Rendezvous") });
+            
+            var transferItem = new TextMenu.Item("Transfer", (idx, item) => MechJebProxy.SetOperationBool(MechJebProxy.GetOperationByName(opName), "Rendezvous", false));
+            menu.Add(transferItem);
+            trackedItems.Add(new TrackedMenuItem { item = transferItem, id = "HohmannTransfer", isSelected = core => !MechJebProxy.GetOperationBool(MechJebProxy.GetOperationByName(opName), "Rendezvous") });
 
             // Rendezvous time offset (LagTime in seconds)
             AddNumericItem(menu, "rendezvous time offset",
@@ -1731,11 +1735,14 @@ namespace JSI
                 (core, val) => MechJebProxy.SetAdvancedTransferPeriapsisKm(MechJebProxy.GetOperationByName(opName), val),
                 10.0, v => v.ToString("F0") + " km", null, true, 10.0, false, 0);
 
-            // Selection mode - Lowest ΔV vs ASAP with dynamic labels
-            AddMenuItem(menu, () => advancedTransferSelectLowestDV ? "[*] Lowest ΔV" : "[ ] Lowest ΔV",
-                () => { advancedTransferSelectLowestDV = true; SelectAdvancedTransferLowestDV(); });
-            AddMenuItem(menu, () => !advancedTransferSelectLowestDV ? "[*] ASAP" : "[ ] ASAP",
-                () => { advancedTransferSelectLowestDV = false; SelectAdvancedTransferASAP(); });
+            // Selection mode - Lowest ΔV vs ASAP - use isSelected for green highlighting
+            var lowestDVItem = new TextMenu.Item("Lowest ΔV", (idx, item) => { advancedTransferSelectLowestDV = true; SelectAdvancedTransferLowestDV(); });
+            menu.Add(lowestDVItem);
+            trackedItems.Add(new TrackedMenuItem { item = lowestDVItem, id = "AdvTransferLowestDV", isSelected = core => advancedTransferSelectLowestDV });
+            
+            var asapItem = new TextMenu.Item("ASAP", (idx, item) => { advancedTransferSelectLowestDV = false; SelectAdvancedTransferASAP(); });
+            menu.Add(asapItem);
+            trackedItems.Add(new TrackedMenuItem { item = asapItem, id = "AdvTransferASAP", isSelected = core => !advancedTransferSelectLowestDV });
 
             // Departure info
             var departureItem = new TextMenu.Item("Departure: ---", null);
@@ -2101,6 +2108,14 @@ namespace JSI
 
             object op = MechJebProxy.GetOperationByName("advanced transfer to another planet");
             if (op == null) return;
+
+            // Check if computation is finished
+            int progress;
+            if (!MechJebProxy.IsAdvancedTransferFinished(op, out progress))
+            {
+                // Not ready yet - need to compute first
+                return;
+            }
 
             MechJebProxy.CreateNodesFromOperation(op, vessel.orbit, Planetarium.GetUniversalTime(), targetController, vessel);
         }
@@ -3113,22 +3128,33 @@ namespace JSI
 
             foreach (var tracked in trackedItems)
             {
-                // Update enabled state
-                if (tracked.isEnabled != null)
+                try
                 {
-                    tracked.item.isDisabled = !tracked.isEnabled(mjCore);
-                }
+                    // Update enabled state
+                    if (tracked.isEnabled != null)
+                    {
+                        tracked.item.isDisabled = !tracked.isEnabled(mjCore);
+                    }
 
-                // Update label
-                if (tracked.getLabel != null)
-                {
-                    tracked.item.labelText = tracked.getLabel(mjCore);
-                }
+                    // Update label
+                    if (tracked.getLabel != null)
+                    {
+                        string newLabel = tracked.getLabel(mjCore);
+                        if (!string.IsNullOrEmpty(newLabel))
+                        {
+                            tracked.item.labelText = newLabel;
+                        }
+                    }
 
-                // Update selected state (for toggles)
-                if (tracked.isSelected != null)
+                    // Update selected state (for toggles)
+                    if (tracked.isSelected != null)
+                    {
+                        tracked.item.isSelected = tracked.isSelected(mjCore);
+                    }
+                }
+                catch (Exception)
                 {
-                    tracked.item.isSelected = tracked.isSelected(mjCore);
+                    // Silently ignore - keep existing label
                 }
             }
 
@@ -3423,6 +3449,12 @@ namespace JSI
         public void PageActive(bool active, int pageNumber)
         {
             pageActiveState = active;
+        }
+
+        // Alias for compatibility with configs that use ClickProcessor
+        public void ClickProcessor(int buttonID)
+        {
+            ButtonProcessor(buttonID);
         }
 
         public void ButtonProcessor(int buttonID)
